@@ -33,17 +33,12 @@ ROTOR_LAB_PORT=3000 docker compose up --build
 
 The container serves the app on port `8080` and exposes `/healthz` for readiness and liveness checks. It runs as a non-root user with a read-only filesystem and all Linux capabilities dropped.
 
-## Kubernetes
+## Deployment
 
-Build and push the same image, replace `YOUR_REGISTRY/rotor-lab:VERSION` in `deploy/kubernetes.example.yaml`, then apply the manifest:
-
-```bash
-docker build -t YOUR_REGISTRY/rotor-lab:VERSION .
-docker push YOUR_REGISTRY/rotor-lab:VERSION
-kubectl apply -f deploy/kubernetes.example.yaml
-```
-
-The example includes two replicas, resource bounds, non-root security settings, a service, and health probes. Add an Ingress or Gateway appropriate for your cluster.
+Pushes to `main` build `ghcr.io/linusthorsell/how_to_tame_a_drone` and update the
+commit-pinned workload manifest in the
+[`LinusThorsell/kubes`](https://github.com/LinusThorsell/kubes) repository. Argo CD
+then deploys it to <https://drone.linus.solutions>.
 
 ## Course flow
 
