@@ -1,0 +1,25 @@
+services:
+  rotor-lab:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: rotor-lab:local
+    container_name: rotor-lab
+    ports:
+      - "${ROTOR_LAB_PORT:-8080}:8080"
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+      - /var/cache/nginx:size=16m,uid=101,gid=101
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+

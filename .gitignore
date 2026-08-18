@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+
+# Generated builds and caches
+dist/
+.vite/
+.cache/
+.eslintcache
+*.tsbuildinfo
+
+# Test output
+coverage/
+playwright-report/
+test-results/
+
+# Local environment and machine-specific config
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.local
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor and operating-system metadata
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Temporary files
+.tmp/
+tmp/
+temp/
+*.tmp
