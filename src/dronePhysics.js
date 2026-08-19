@@ -7,11 +7,16 @@ export const MAX_MOTOR_THRUST = 6.8;
 export const HOVER_THRUST = MASS * GRAVITY / 4;
 export const MOTOR_TIME_CONSTANT = 0.055;
 export const YAW_TORQUE_COEFFICIENT = 0.015;
+export const ATTITUDE_TORQUE_PER_COMMAND = 0.12;
+export const YAW_TORQUE_PER_COMMAND = 0.055;
 export const INERTIA = Object.freeze({ x: 0.022, y: 0.04, z: 0.022 });
 export const BODY_HALF_EXTENTS = Object.freeze({ x: 0.32, y: 0.1, z: 0.35 });
 export const LINEAR_DRAG = 0.16;
 export const LINEAR_DAMPING = 0.08;
 export const ANGULAR_DAMPING = 0.08;
+// A real quad is never perfectly balanced: center-of-mass and motor differences
+// leave a small persistent torque for integral control to trim out.
+export const AIRFRAME_TRIM_TORQUE = Object.freeze({ yaw: -0.003, roll: -0.006 });
 // The pilot can use the complete sport-flight envelope. Rapier turns the
 // horizontal component of the tilted thrust vector into acceleration, so a
 // larger commanded angle produces more speed without an artificial boost.
@@ -38,9 +43,9 @@ export function stepMotorModel({
 }) {
   const tiltCompensation = Math.max(bodyUpY, 0.55);
   const collective = clamp(MASS * (GRAVITY + altitudeOutput * 3.2) / tiltCompensation, 0, MAX_MOTOR_THRUST * 4);
-  const pitchMix = pitchOutput * 0.12 / (4 * ARM_LENGTH);
-  const rollMix = rollOutput * 0.12 / (4 * ARM_LENGTH);
-  const yawMix = yawOutput * 0.055 / (4 * YAW_TORQUE_COEFFICIENT);
+  const pitchMix = pitchOutput * ATTITUDE_TORQUE_PER_COMMAND / (4 * ARM_LENGTH);
+  const rollMix = rollOutput * ATTITUDE_TORQUE_PER_COMMAND / (4 * ARM_LENGTH);
+  const yawMix = yawOutput * YAW_TORQUE_PER_COMMAND / (4 * YAW_TORQUE_COEFFICIENT);
   const base = collective / 4;
   const targets = [
     base - pitchMix - rollMix - yawMix,

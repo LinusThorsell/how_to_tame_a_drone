@@ -16,7 +16,9 @@ import {
   readFlightInputs
 } from '../physics';
 import {
+  AIRFRAME_TRIM_TORQUE,
   ANGULAR_DAMPING,
+  ATTITUDE_TORQUE_PER_COMMAND,
   BODY_HALF_EXTENTS,
   createMotorThrusts,
   GRAVITY,
@@ -27,7 +29,8 @@ import {
   MAX_FLIGHT_TILT_DEGREES,
   MAX_MOTOR_THRUST,
   motorBodyTorque,
-  stepMotorModel
+  stepMotorModel,
+  YAW_TORQUE_PER_COMMAND
 } from '../dronePhysics';
 import { FLIGHT_START, gatesForMode, isGateCleared } from '../flightCourse';
 
@@ -222,8 +225,37 @@ function Ground({ challenge }) {
   );
 }
 
-function createFlightState(motors) {
+function createTrimmedMemory(torque, commandTorque, gains) {
+  const memory = createMemory();
+  const integralGain = Number(gains?.ki);
+  if (Number.isFinite(integralGain) && integralGain > 0) {
+    memory.integral = clamp(-torque / commandTorque / integralGain, -1, 1);
+  }
+  return memory;
+}
+
+function createFlightState(motors, gains) {
+  const memories = {
+    pitch: createMemory(),
+    // Tune doubles as the pre-flight trim calibration. Begin free flight
+    // with that learned compensation instead of relearning it while airborne.
+    roll: createTrimmedMemory(AIRFRAME_TRIM_TORQUE.roll, ATTITUDE_TORQUE_PER_COMMAND, gains),
+    yaw: createTrimmedMemory(AIRFRAME_TRIM_TORQUE.yaw, YAW_TORQUE_PER_COMMAND, gains),
+    altitude: createMemory()
+  };
   motors.splice(0, motors.length, ...createMotorThrusts());
+  // The motors have already been spun up during the launch check. Starting at
+  // their calibrated trim thrust avoids a one-frame imbalance that would turn
+  // into lasting horizontal velocity in an attitude-only flight mode.
+  stepMotorModel({
+    motors,
+    pitchOutput: 0,
+    rollOutput: (Number(gains?.ki) || 0) * memories.roll.integral,
+    yawOutput: (Number(gains?.ki) || 0) * memories.yaw.integral,
+    altitudeOutput: 0,
+    bodyUpY: 1,
+    delta: 1
+  });
   return {
     motors,
     altitudeTarget: 2.2,
@@ -234,12 +266,7 @@ function createFlightState(motors) {
     controllerFault: false,
     desiredPitch: 0,
     desiredRoll: 0,
-    memories: {
-      pitch: createMemory(),
-      roll: createMemory(),
-      yaw: createMemory(),
-      altitude: createMemory()
-    }
+    memories
   };
 }
 
@@ -250,7 +277,7 @@ function Simulator({ launched, mode = 'training', controller, gains, resetSignal
   const keys = useFlightKeys(launched);
   const bodyRef = useRef();
   const motorsVisual = useRef(createMotorThrusts());
-  const flightState = useRef(createFlightState(motorsVisual.current));
+  const flightState = useRef(createFlightState(motorsVisual.current, gains));
   const telemetryTime = useRef(0);
   const onTelemetryRef = useRef(onTelemetry);
   const onCheckpointRef = useRef(onCheckpoint);
@@ -279,7 +306,7 @@ function Simulator({ launched, mode = 'training', controller, gains, resetSignal
   fallbackRef.current = builtInController(gains);
 
   const resetPhysics = useCallback(() => {
-    flightState.current = createFlightState(motorsVisual.current);
+    flightState.current = createFlightState(motorsVisual.current, gains);
     const body = bodyRef.current;
     if (body) {
       body.setTranslation(FLIGHT_START, true);
@@ -290,7 +317,7 @@ function Simulator({ launched, mode = 'training', controller, gains, resetSignal
       body.resetTorques(true);
     }
     camera.position.set(0, 4.6, -5);
-  }, [camera]);
+  }, [camera, gains]);
   useEffect(() => { resetPhysics(); }, [resetSignal, launched, mode, resetPhysics]);
 
   useBeforePhysicsStep((world) => {
@@ -354,13 +381,24 @@ function Simulator({ launched, mode = 'training', controller, gains, resetSignal
       battery: flight.battery
     });
     const torque = motorBodyTorque(flight.motors, bodyAngularVelocity.y);
-    bodyTorque.set(torque.x, torque.y, torque.z);
+    bodyTorque.set(
+      torque.x,
+      torque.y + AIRFRAME_TRIM_TORQUE.yaw,
+      torque.z + AIRFRAME_TRIM_TORQUE.roll
+    );
     worldTorque.copy(bodyTorque).applyQuaternion(orientation);
 
     // Rapier integrates the rigid body's mass, inertia tensor, gyroscopic motion,
     // gravity, collision response, restitution, friction, and fixed time step.
     const groundEffect = 1 + 0.1 * Math.exp(-position.y / 0.45);
-    wind.set(Math.sin(flight.elapsed * 0.37) * 0.7, 0, Math.cos(flight.elapsed * 0.21) * 0.25);
+    // Practice is a calm learning range. The timed course retains a light,
+    // changing breeze so race difficulty does not masquerade as bad tuning.
+    const windScale = challenge ? 0.45 : 0;
+    wind.set(
+      Math.sin(flight.elapsed * 0.37) * 0.7 * windScale,
+      0,
+      Math.cos(flight.elapsed * 0.21) * 0.25 * windScale
+    );
     relativeAir.copy(velocity).sub(wind);
     force.copy(bodyUp).multiplyScalar(actualThrust * groundEffect);
     force.addScaledVector(relativeAir, -LINEAR_DRAG * relativeAir.length());

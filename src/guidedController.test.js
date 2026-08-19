@@ -17,16 +17,29 @@ test('No code mode builds valid JavaScript and Python at every step', () => {
   }
 });
 
-test('No code mode introduces P, I, and D progressively', () => {
+test('No code mode introduces P, D, and I in a stable tuning order', () => {
   assert.deepEqual(gainsForGuidedStep(0), { kp: 0, ki: 0, kd: 0 });
   assert.deepEqual(gainsForGuidedStep(1), { kp: GUIDED_CONTROLLER_GAINS.kp, ki: 0, kd: 0 });
-  assert.deepEqual(gainsForGuidedStep(2), { kp: GUIDED_CONTROLLER_GAINS.kp, ki: GUIDED_CONTROLLER_GAINS.ki, kd: 0 });
+  assert.deepEqual(gainsForGuidedStep(2), { kp: GUIDED_CONTROLLER_GAINS.kp, ki: 0, kd: GUIDED_CONTROLLER_GAINS.kd });
   assert.deepEqual(gainsForGuidedStep(4), GUIDED_CONTROLLER_GAINS);
   assert.match(buildGuidedController('javascript', 1), /proportional/);
   assert.doesNotMatch(buildGuidedController('javascript', 1), /integral/);
-  assert.match(buildGuidedController('javascript', 2), /integral/);
-  assert.match(buildGuidedController('javascript', 3), /derivative/);
+  assert.match(buildGuidedController('javascript', 2), /derivative/);
+  assert.doesNotMatch(buildGuidedController('javascript', 2), /integral/);
+  assert.match(buildGuidedController('javascript', 3), /integral/);
   assert.match(buildGuidedController('javascript', 4), /Math\.max\(-2\.5/);
+});
+
+test('each control behavior improves the guided Easy response', async () => {
+  const runs = [];
+  for (const step of [1, 2, 3]) {
+    const gains = gainsForGuidedStep(step);
+    const controller = compileController('javascript', buildGuidedController('javascript', step));
+    runs.push(await simulateRapierTuning(controller, 'easy', gains));
+  }
+  assert.ok(runs[1].score > runs[0].score, `D should improve ${runs[0].score} to ${runs[1].score}`);
+  assert.ok(runs[2].score > runs[1].score, `I should improve ${runs[1].score} to ${runs[2].score}`);
+  assert.ok(runs[2].steadyError < runs[1].steadyError, `I should reduce ${runs[1].steadyError}° steady error`);
 });
 
 test('the completed No code controller can pass the full Code validation path', async () => {

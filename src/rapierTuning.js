@@ -7,6 +7,7 @@ import {
   scoreSimulation
 } from './physics.js';
 import {
+  AIRFRAME_TRIM_TORQUE,
   ANGULAR_DAMPING,
   BODY_HALF_EXTENTS,
   createMotorThrusts,
@@ -127,7 +128,11 @@ export async function simulateRapierTuning(controller, scenario, gains) {
         delta: STEP
       });
       const torque = motorBodyTorque(motors, bodyAngularVelocity.y);
-      bodyTorque.set(torque.x, torque.y, torque.z);
+      bodyTorque.set(
+        torque.x,
+        torque.y + AIRFRAME_TRIM_TORQUE.yaw,
+        torque.z + AIRFRAME_TRIM_TORQUE.roll
+      );
       worldTorque.copy(bodyTorque).applyQuaternion(orientation);
 
       relativeAir.set(linearVelocity.x, linearVelocity.y, linearVelocity.z);

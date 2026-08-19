@@ -7,12 +7,21 @@ import {
   readFlightInputs
 } from './physics.js';
 import { simulateRapierTuning } from './rapierTuning.js';
-import { MAX_FLIGHT_TILT_DEGREES } from './dronePhysics.js';
+import {
+  AIRFRAME_TRIM_TORQUE,
+  ATTITUDE_TORQUE_PER_COMMAND,
+  createMotorThrusts,
+  MAX_FLIGHT_TILT_DEGREES,
+  motorBodyTorque,
+  stepMotorModel,
+  YAW_TORQUE_PER_COMMAND
+} from './dronePhysics.js';
 import {
   CODE_SCENARIOS,
   isCodeScenarioUnlocked,
   nextCodeScenarioId,
   SCENARIOS,
+  TUNE_CHECK_SCENARIOS,
   targetDegreesForScenario
 } from './scenarios.js';
 
@@ -66,7 +75,7 @@ test('Code validation unlocks Easy, Medium, and Hard in order', () => {
 
 test('an unstable airframe remains replayable without blaming a finite controller', async () => {
   const controller = compileController('javascript', defaultCode.javascript);
-  const unstable = await simulateRapierTuning(controller, 'switchback', starterGains);
+  const unstable = await simulateRapierTuning(controller, 'envelope', starterGains);
   const invalidController = await simulateRapierTuning(() => Number.NaN, 'easy', starterGains);
   assert.equal(unstable.invalidOutput, false);
   assert.equal(unstable.physicsDiverged, true);
@@ -85,6 +94,33 @@ test('a learner-built simple PID can pass every Rapier scenario', async () => {
   assert.equal(runs[0].points.at(-1).target, MAX_FLIGHT_TILT_DEGREES);
   assert.ok(Math.min(...scores) >= 60, `expected every learner scenario >= 60, received ${scores.join(', ')}`);
   assert.ok(combined >= 75, `expected learner tune >= 75, received ${scores.join(', ')}`);
+});
+
+test('integral control improves persistent trim error after P and D are established', async () => {
+  const pdGains = { ...exampleLearnerGains, ki: 0 };
+  const pdRuns = await Promise.all(TUNE_CHECK_SCENARIOS.map((scenario) => simulateRapierTuning(builtInController(pdGains), scenario, pdGains)));
+  const pidRuns = await Promise.all(TUNE_CHECK_SCENARIOS.map((scenario) => simulateRapierTuning(builtInController(exampleLearnerGains), scenario, exampleLearnerGains)));
+  const pdCombined = pdRuns.reduce((sum, run) => sum + run.score, 0) / pdRuns.length;
+  const pidCombined = pidRuns.reduce((sum, run) => sum + run.score, 0) / pidRuns.length;
+
+  assert.ok(pidRuns.every((run, index) => run.steadyError < pdRuns[index].steadyError));
+  assert.ok(pidCombined > pdCombined, `expected I to improve ${pdCombined} to ${pidCombined}`);
+});
+
+test('pre-flight motor trim cancels the persistent airframe torque', () => {
+  const motors = createMotorThrusts();
+  stepMotorModel({
+    motors,
+    pitchOutput: 0,
+    rollOutput: -AIRFRAME_TRIM_TORQUE.roll / ATTITUDE_TORQUE_PER_COMMAND,
+    yawOutput: -AIRFRAME_TRIM_TORQUE.yaw / YAW_TORQUE_PER_COMMAND,
+    altitudeOutput: 0,
+    bodyUpY: 1,
+    delta: 1
+  });
+  const torque = motorBodyTorque(motors);
+  assert.ok(Math.abs(torque.z + AIRFRAME_TRIM_TORQUE.roll) < 1e-8);
+  assert.ok(Math.abs(torque.y + AIRFRAME_TRIM_TORQUE.yaw) < 1e-8);
 });
 
 test('invalid Python syntax produces a useful validation error', () => {

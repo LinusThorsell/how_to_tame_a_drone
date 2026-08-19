@@ -113,6 +113,7 @@ export function builtInController(gains) {
 export function simulate(controller, scenario = 'step', gains = { kp: 1.25, ki: 0.3, kd: 0.42 }) {
   const dt = 1 / 60;
   const duration = 8;
+  const trimAcceleration = -0.6;
   const points = [];
   const memory = createMemory();
   let angle = 0;
@@ -123,16 +124,18 @@ export function simulate(controller, scenario = 'step', gains = { kp: 1.25, ki: 
   for (let i = 0; i <= duration / dt; i += 1) {
     const time = i * dt;
     let target = 0;
-    let disturbance = 0;
+    // A small constant trim imbalance gives I a real job instead of evaluating
+    // every controller against an unrealistically perfect airframe.
+    let disturbance = trimAcceleration;
     if (scenario === 'step') target = time < 0.8 ? 0 : rad(20);
     if (scenario === 'code') {
       target = time < 0.8 ? 0 : rad(15);
-      if (time > 4.1 && time < 4.35) disturbance = -2.7;
+      if (time > 4.1 && time < 4.35) disturbance += -2.7;
     }
-    if (scenario === 'gust' && time > 1.6 && time < 2) disturbance = 3.8;
+    if (scenario === 'gust' && time > 1.6 && time < 2) disturbance += 3.8;
     if (scenario === 'payload') {
       target = time < 0.8 ? 0 : rad(12);
-      if (time > 2.1) disturbance = -0.22;
+      if (time > 2.1) disturbance += -0.22;
     }
 
     const error = target - angle;

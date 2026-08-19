@@ -37,6 +37,7 @@ import { COURSE_NAVIGATION, isViewUnlocked, resolveView } from './courseNavigati
 import {
   buildGuidedController,
   gainsForGuidedStep,
+  GUIDED_CONTROLLER_GAINS,
   GUIDED_CONTROLLER_STEPS
 } from './guidedController';
 
@@ -44,7 +45,7 @@ const FlightScene = lazy(() => import('./components/FlightScene'));
 const LearnFlightDemo = lazy(() => import('./components/LearnFlightDemo'));
 
 const STORAGE_KEY = 'rotor-lab-react-v1';
-const MAX_GAIN = 6;
+const MAX_GAINS = Object.freeze({ kp: 10, ki: 6, kd: 6 });
 const TUNE_PASS_SCORE = 75;
 const TUNE_SCENARIO_FLOOR = 60;
 const CODE_REQUIREMENT_VERSION = 2;
@@ -66,11 +67,11 @@ const baseProgress = {
   codeScenarioPasses: { easy: null, medium: null, hard: null },
   scenario: DEFAULT_SCENARIO,
   codeRequirementVersion: 0,
-  codeMode: 'manual',
+  codeMode: 'helpful',
   helpfulStep: 0,
   validated: null,
   code: { ...defaultCode },
-  gains: { kp: 1, ki: 0, kd: 0 },
+  gains: { ...GUIDED_CONTROLLER_GAINS },
   practicePassed: false,
   raceBest: null
 };
@@ -96,7 +97,7 @@ const lessons = [
   { title: 'Proportional', time: '3 min', focus: 'p', demoMode: 'high', kicker: '02 · PROPORTIONAL', heading: 'P reacts to what is wrong now.', body: 'The proportional term pushes in direct proportion to the current error. More <strong>P</strong> makes the drone respond faster, but too much creates overshoot and repeated oscillation around the target.', cue: 'Compare P too low and P too high. Look for the point where authority turns into wobble.', takeaway: 'Raise P until response is decisive, then stop before persistent oscillation.', next: 'Next: Integral' },
   { title: 'Integral', time: '3 min', focus: 'i', demoMode: 'high', kicker: '03 · INTEGRAL', heading: 'I remembers what P leaves behind.', body: 'The integral term accumulates error over time. It removes the small offset caused by an uneven payload or motor, but too much <strong>I</strong> stores a large correction and produces slow, swelling oscillations called windup.', cue: 'Watch the slow swing with I too high: stored error keeps pushing after the target is crossed.', takeaway: 'Use just enough I to remove steady error, and clamp its stored value.', next: 'Next: Derivative' },
   { title: 'Derivative', time: '3 min', focus: 'd', demoMode: 'low', kicker: '04 · DERIVATIVE', heading: 'D sees where the motion is going.', body: 'The derivative term reacts to how quickly error changes. It acts like aerodynamic damping: <strong>D</strong> slows a fast approach before the drone shoots past its target. Sensor noise is its main weakness.', cue: 'Start with D absent, then add damping and watch the drone stop chasing the ghost target.', takeaway: 'Add D to calm overshoot, but filter noisy measurements in real aircraft.', next: 'Next: Tuning method' },
-  { title: 'A tuning method', time: '5 min', focus: 'method', demoMode: 'high', kicker: '05 · A TUNING METHOD', heading: 'Tune one behavior at a time.', body: 'Start with I and D at zero. Raise <strong>P</strong> until the response becomes crisp, add <strong>D</strong> to control overshoot, then introduce a small amount of <strong>I</strong> to remove lasting bias. Re-test after every change.', cue: 'Step through P → add D → add I. Each click changes only the behavior you are evaluating.', takeaway: 'P for authority, D for calm, I for accuracy—in that order.', next: 'Continue to Code Lab' }
+  { title: 'A tuning method', time: '5 min', focus: 'method', demoMode: 'low', kicker: '05 · A TUNING METHOD', heading: 'Tune one behavior at a time.', body: 'Start with a deliberately unstable P-only controller. Add <strong>D</strong> to stop the violent overshoot, then introduce a small amount of <strong>I</strong> to remove the leftover bias. The aircraft should visibly improve at every stage.', cue: 'Click stages 1 → 2 → 3 below the preview. Watch the broken response become controlled one change at a time.', takeaway: 'P for authority, D for calm, I for accuracy—in that order.', next: 'Continue to Code Lab' }
 ];
 
 const learningComparisons = {
@@ -133,55 +134,14 @@ const learningComparisons = {
     ]
   },
   method: {
-    title: 'Tune in this order',
+    title: 'Fix the broken tune',
     options: [
-      { id: 'low', label: '1 · Set P', gains: { kp: 1.4, ki: 0, kd: 0 }, copy: 'Begin with authority. Ignore fine accuracy until the drone responds clearly.' },
-      { id: 'balanced', label: '2 · Add D', gains: { kp: 1.4, ki: 0, kd: 0.7 }, copy: 'Add damping next so the decisive P response no longer overshoots.' },
-      { id: 'high', label: '3 · Add I', gains: { kp: 1.4, ki: 0.25, kd: 0.7 }, copy: 'Finish with only enough memory to remove the remaining steady error.' }
+      { id: 'low', label: '1 · Unstable start', gains: { kp: 3.6, ki: 0, kd: 0 }, copy: 'BROKEN: high P attacks the error, but no damping stops the drone from shooting past its target.' },
+      { id: 'balanced', label: '2 · Add damping', gains: { kp: 2.5, ki: 0, kd: 1 }, copy: 'BETTER: D brakes the fast approach. The violent oscillation settles, but a small bias can remain.' },
+      { id: 'high', label: '3 · Finish stable', gains: { kp: 2.5, ki: 0.1, kd: 1 }, copy: 'FIXED: a little I removes the leftover error without overpowering the stable P + D response.' }
     ]
   }
 };
-
-const pidGuide = [
-  {
-    term: '1 · P',
-    title: 'React to the error now',
-    body: 'The starter already multiplies the current error by P. Change P and run the physical test until the response has authority without endless oscillation.',
-    javascript: 'const proportional = gains.kp * error;',
-    python: 'proportional = gains["kp"] * error'
-  },
-  {
-    term: '2 · I',
-    title: 'Remember leftover error',
-    body: 'Accumulate error over time and clamp the stored value to limit windup. Add the integral term to your output, then introduce only a little I.',
-    javascript: `state.integral += error * dt;
-state.integral = Math.max(-1, Math.min(1, state.integral));
-const integral = gains.ki * state.integral;`,
-    python: `state["integral"] += error * dt
-state["integral"] = max(-1, min(1, state["integral"]))
-integral = gains["ki"] * state["integral"]`
-  },
-  {
-    term: '3 · D',
-    title: 'Damp fast movement',
-    body: 'Measure how quickly error changes. D resists a rapid approach and can calm overshoot, but too much makes the motors react to noise.',
-    javascript: `const derivative = (error - state.previousError) / dt;
-state.previousError = error;
-const damping = gains.kd * derivative;`,
-    python: `derivative = (error - state["previousError"]) / dt
-state["previousError"] = error
-damping = gains["kd"] * derivative`
-  },
-  {
-    term: '4 · MIX',
-    title: 'Combine, clamp, and test',
-    body: 'Sum your three terms and retain the output clamp. Run the Rapier test after every edit, then verify roll, yaw, gust, and payload in Tune.',
-    javascript: `const output = proportional + integral + damping;
-return Math.max(-2.5, Math.min(2.5, output));`,
-    python: `output = proportional + integral + damping
-return max(-2.5, min(2.5, output))`
-  }
-];
 
 function sourceFingerprint(source = '') {
   let hash = 2166136261;
@@ -230,10 +190,17 @@ function loadProgress() {
       : stored.validated || null;
     const resetExercise = Boolean(selectedStarterRetired || validatedIsStarter);
     const storedGains = { ...baseProgress.gains, ...(stored.gains || {}) };
-    const gains = Object.fromEntries(Object.entries(storedGains).map(([key, value]) => [
+    let gains = Object.fromEntries(Object.entries(storedGains).map(([key, value]) => [
       key,
-      Number.isFinite(Number(value)) ? Math.max(0, Math.min(MAX_GAIN, Number(value))) : baseProgress.gains[key]
+      Number.isFinite(Number(value)) ? Math.max(0, Math.min(MAX_GAINS[key], Number(value))) : baseProgress.gains[key]
     ]));
+    const codeMode = stored.codeMode === 'manual' ? 'manual' : 'helpful';
+    const helpfulStep = Math.max(0, Math.min(GUIDED_CONTROLLER_STEPS.length, Math.floor(Number(stored.helpfulStep) || 0)));
+    if (codeMode === 'helpful' && helpfulStep > 0) {
+      code.javascript = buildGuidedController('javascript', helpfulStep);
+      code.python = buildGuidedController('python', helpfulStep);
+      if (helpfulStep < GUIDED_CONTROLLER_STEPS.length) gains = gainsForGuidedStep(helpfulStep);
+    }
     const codeRequirementCurrent = !resetExercise && stored.codeRequirementVersion === CODE_REQUIREMENT_VERSION;
     const codeScenarioPasses = Object.fromEntries(CODE_SCENARIOS.map((scenario) => {
       const score = Number(stored.codeScenarioPasses?.[scenario.id]);
@@ -250,8 +217,8 @@ function loadProgress() {
       ...stored,
       codeScenario,
       codeScenarioPasses,
-      codeMode: stored.codeMode === 'helpful' ? 'helpful' : 'manual',
-      helpfulStep: Math.max(0, Math.min(GUIDED_CONTROLLER_STEPS.length, Math.floor(Number(stored.helpfulStep) || 0))),
+      codeMode,
+      helpfulStep,
       scenario: isScenario(stored.scenario) ? stored.scenario : DEFAULT_SCENARIO,
       code,
       validated,
@@ -315,20 +282,20 @@ function Header({ view, navigate, progress }) {
   );
 }
 
-function GainSlider({ id, term, label, value, max, step, compact = false, help, highlight = false, onChange }) {
+function GainSlider({ id, term, label, value, max, step, compact = false, help, highlight = false, disabled = false, onChange }) {
   const fill = `${value / max * 100}%`;
   if (compact) {
     return (
-      <div className={`mini-control ${term.toLowerCase()}-control ${highlight ? 'teaching-focus' : ''}`}>
+      <div className={`mini-control ${term.toLowerCase()}-control ${highlight ? 'teaching-focus' : ''} ${disabled ? 'locked-control' : ''}`}>
         <label htmlFor={id}><span>{term}</span> {label} <output>{value.toFixed(2)}</output></label>
-        <input id={id} type="range" min="0" max={max} value={value} step={step} style={{ '--fill': fill }} onChange={(event) => onChange(Number(event.target.value))} />
+        <input id={id} type="range" min="0" max={max} value={value} step={step} style={{ '--fill': fill }} disabled={disabled} onChange={(event) => onChange?.(Number(event.target.value))} />
       </div>
     );
   }
   return (
-    <div className={`gain-control ${term.toLowerCase()}-control`}>
+    <div className={`gain-control ${term.toLowerCase()}-control ${disabled ? 'locked-control' : ''}`}>
       <div className="gain-readout"><span>{term}</span><div><b>{label}</b><small>{help}</small></div><output>{value.toFixed(2)}</output></div>
-      <input id={id} type="range" min="0" max={max} value={value} step={step} style={{ '--fill': fill }} onChange={(event) => onChange(Number(event.target.value))} />
+      <input id={id} type="range" min="0" max={max} value={value} step={step} style={{ '--fill': fill }} disabled={disabled} onChange={(event) => onChange?.(Number(event.target.value))} />
     </div>
   );
 }
@@ -345,44 +312,26 @@ function ScenarioSelector({ value, onChange, compact = false, scenarios = SCENAR
   );
 }
 
-function CodeScenarioProgress({ value, onChange, passes }) {
+function CodeScenarioProgress({ value, passes }) {
   const passedCount = CODE_SCENARIOS.filter((scenario) => hasPassedCodeScenario(passes, scenario.id)).length;
   const nextScenario = nextCodeScenarioId(passes);
+  const goalScenario = nextScenario || value;
+  const goal = scenarioDefinition(goalScenario);
   return (
-    <div className="code-progression">
-      <div className="code-progression-head">
-        <span>VALIDATION PATH</span>
-        <div><i><b style={{ width: `${passedCount / CODE_SCENARIOS.length * 100}%` }} /></i><strong>{passedCount}/3 PASSED</strong></div>
+    <div className={`code-goal-card ${nextScenario ? '' : 'complete'}`}>
+      <div className="code-goal-kicker">
+        <span>{nextScenario ? `GOAL ${passedCount + 1} OF ${CODE_SCENARIOS.length}` : 'ALL GOALS COMPLETE'}</span>
+        <b>{passedCount} / {CODE_SCENARIOS.length}</b>
       </div>
-      <div className="code-stage-list" role="tablist" aria-label="Code validation stages">
-        {CODE_SCENARIOS.map((scenario) => {
-          const passed = hasPassedCodeScenario(passes, scenario.id);
-          const unlocked = isCodeScenarioUnlocked(scenario.id, passes);
-          const active = value === scenario.id;
-          const recommended = nextScenario === scenario.id;
-          const status = passed ? `Passed · ${passes[scenario.id]}/100` : unlocked ? (active ? 'Current test' : 'Ready') : 'Pass previous stage';
-          return (
-            <button
-              key={scenario.id}
-              className={`${active ? 'active ' : ''}${passed ? 'passed ' : ''}${recommended ? 'recommended ' : ''}${unlocked ? '' : 'locked'}`}
-              onClick={() => onChange(scenario.id)}
-              disabled={!unlocked}
-              role="tab"
-              aria-selected={active}
-              aria-label={`${scenario.label}: ${status}`}
-            >
-              <span className="code-stage-number">{passed ? '✓' : scenario.level}</span>
-              <span className="code-stage-copy"><b>{scenario.label}</b></span>
-              <span className="code-stage-state" aria-hidden="true">{passed ? `${passes[scenario.id]}/100` : unlocked ? (recommended ? 'NEXT' : 'OPEN') : 'LOCKED'}</span>
-            </button>
-          );
+      <h4>{nextScenario ? <>Pass <em>{goal.label}</em></> : 'Controller cleared for Tune'}</h4>
+      <p>{nextScenario ? `Run the ${goal.headline}. Score 58+ with less than 5° steady error.` : 'Easy, Medium, and Hard are passed. Continue to Tune.'}</p>
+      <div className="code-goal-stages" aria-label={`${passedCount} of ${CODE_SCENARIOS.length} validation goals complete`}>
+        {CODE_SCENARIOS.map((item) => {
+          const passed = hasPassedCodeScenario(passes, item.id);
+          const current = nextScenario === item.id;
+          return <span key={item.id} className={`${passed ? 'passed' : ''} ${current ? 'current' : ''}`}><i>{passed ? '✓' : item.level}</i><b>{item.label}</b><small>{passed ? `${passes[item.id]}/100` : current ? 'NEXT GOAL' : 'LOCKED'}</small></span>;
         })}
       </div>
-      <p className={nextScenario ? '' : 'complete'}>
-        {nextScenario
-          ? <><span>Next objective</span> Pass <strong>{scenarioDefinition(nextScenario).label}</strong> to unlock the following stage.</>
-          : <><span>Validation complete</span> All three angles passed. Continue to Tune for direction changes and disturbances.</>}
-      </p>
     </div>
   );
 }
@@ -436,11 +385,6 @@ function LearnView({ onComplete }) {
     chooseMode(nextOption);
   };
 
-  const changeLearningGain = (key, value) => {
-    setDemoMode('custom');
-    setGains((current) => ({ ...current, [key]: value }));
-  };
-
   const next = () => {
     if (lessonIndex < lessons.length - 1) chooseLesson(lessonIndex + 1);
     else onComplete();
@@ -452,26 +396,34 @@ function LearnView({ onComplete }) {
       <div className="learn-grid">
         <aside className="lesson-rail panel"><p className="panel-label">Flight manual</p>{lessons.map((item, index) => <button key={item.title} className={`lesson-link ${index === lessonIndex ? 'active' : ''}`} onClick={() => chooseLesson(index)}><span>0{index + 1}</span><b>{item.title}</b><i>{item.time}</i></button>)}</aside>
         <article className="lesson-card panel" data-focus={lesson.focus}>
+          <div className="lesson-step-heading"><span>1</span><div><b>Learn the idea</b><small>Read the behavior, then follow it through the control loop.</small></div></div>
           <div className="lesson-copy"><div className="lesson-kicker">{lesson.kicker}</div><h2>{lesson.heading}</h2><p dangerouslySetInnerHTML={{ __html: lesson.body }} /><div className="lesson-attention"><span>WATCH</span><p>{lesson.cue}</p></div></div>
           <div className="control-loop" aria-label="PID control loop diagram"><div className="loop-node setpoint"><span>01</span><b>Setpoint</b><small>Where we want to be</small></div><div className="loop-arrow"><span>error</span>→</div><div className="loop-node controller"><span>02</span><b>PID</b><small>Calculate correction</small></div><div className="loop-arrow"><span>output</span>→</div><div className="loop-node drone-node"><span>03</span><b>Drone</b><small>Motors change motion</small></div><div className="feedback-line"><span>measured angle</span></div></div>
           <div className="equation-strip"><span>controller output</span><b>=</b><strong className="p-color">K<sub>p</sub> · e(t)</strong><b>+</b><strong className="i-color">K<sub>i</sub> · ∫e(t)dt</strong><b>+</b><strong className="d-color">K<sub>d</sub> · de(t)/dt</strong></div>
-          <div className="lesson-footer"><div><span className="key-cap">KEY IDEA</span><p>{lesson.takeaway}</p></div><button className="primary-btn" id="next-lesson" onClick={next}>{lesson.next} <span>→</span></button></div>
+          <section className={`live-lab embedded-lab response-${responseKind}`} data-focus={lesson.focus} aria-labelledby="try-it-title">
+            <div className="panel-title embedded-lab-title"><div><p className="panel-label">Step 2 · Try it yourself</p><h3 id="try-it-title">{comparison.title}</h3><small>Choose a preset, then watch the aircraft respond.</small></div><span className="demo-badge">INTERACTIVE</span></div>
+            <div className="embedded-lab-grid">
+              <div className="embedded-lab-controls">
+                <div className="learn-preview-prompt"><span>A</span><p><b>Choose a response</b>Each button loads a different controller preset.</p><i aria-hidden="true">↓</i></div>
+                <div className="learn-comparison">
+                  <div role="group" aria-label={comparison.title}>{comparison.options.map((option) => <button key={option.id} className={demoMode === option.id ? 'active' : ''} onClick={() => chooseMode(option)}>{option.label}</button>)}</div>
+                  <p><i>↳</i>{activeOption?.copy}</p>
+                </div>
+                <div className="learn-gain-controls">
+                  <div className="learn-gain-lock"><LockIcon /><span>Preset values</span><small>Change them with the buttons above</small></div>
+                  <GainSlider compact disabled highlight={lesson.focus === 'p' || lesson.focus === 'method'} id="learn-p" term="P" label="Proportional" value={gains.kp} max={MAX_GAINS.kp} step={0.05} />
+                  <GainSlider compact disabled highlight={lesson.focus === 'i' || lesson.focus === 'method'} id="learn-i" term="I" label="Integral" value={gains.ki} max={MAX_GAINS.ki} step={0.02} />
+                  <GainSlider compact disabled highlight={lesson.focus === 'd' || lesson.focus === 'method'} id="learn-d" term="D" label="Derivative" value={gains.kd} max={MAX_GAINS.kd} step={0.02} />
+                </div>
+              </div>
+              <div className="embedded-preview-column">
+                <div className="learn-preview-window"><div><span>B</span><b>Watch what changes</b><small>The preview replays after every selection</small></div><Suspense fallback={<div className="learn-flight-loading">Loading aircraft…</div>}><LearnFlightDemo run={run} mode={responseKind} label={activeOption?.label || 'Controller preset'} /></Suspense></div>
+                <div className="response-note" aria-live="polite"><b>{response[0]}</b><span>{response[1]}</span></div>
+              </div>
+            </div>
+          </section>
+          <div className="lesson-footer"><div><span className="key-cap">STEP 3 · REMEMBER</span><p>{lesson.takeaway}</p></div><button className="primary-btn" id="next-lesson" onClick={next}>{lesson.next} <span>→</span></button></div>
         </article>
-        <aside className={`live-lab panel response-${responseKind}`} data-focus={lesson.focus}>
-          <div className="panel-title"><div><p className="panel-label">Interactive Three.js lab</p><h3>{comparison.title}</h3></div><span className="demo-badge">SIMULATED</span></div>
-          <Suspense fallback={<div className="learn-flight-loading">Loading aircraft…</div>}><LearnFlightDemo run={run} mode={responseKind} label={activeOption?.label || 'Custom gains'} /></Suspense>
-          <div className="learn-comparison">
-            <span>TRY EACH RESPONSE</span>
-            <div role="group" aria-label={comparison.title}>{comparison.options.map((option) => <button key={option.id} className={demoMode === option.id ? 'active' : ''} onClick={() => chooseMode(option)}>{option.label}</button>)}</div>
-            <p><i>↳</i>{activeOption?.copy || 'Custom gains are active. Watch the aircraft and compare its motion with the ghost target.'}</p>
-          </div>
-          <div className="learn-gain-controls">
-            <GainSlider compact highlight={lesson.focus === 'p' || lesson.focus === 'method'} id="learn-p" term="P" label="Proportional" value={gains.kp} max={MAX_GAIN} step={0.05} onChange={(kp) => changeLearningGain('kp', kp)} />
-            <GainSlider compact highlight={lesson.focus === 'i' || lesson.focus === 'method'} id="learn-i" term="I" label="Integral" value={gains.ki} max={MAX_GAIN} step={0.02} onChange={(ki) => changeLearningGain('ki', ki)} />
-            <GainSlider compact highlight={lesson.focus === 'd' || lesson.focus === 'method'} id="learn-d" term="D" label="Derivative" value={gains.kd} max={MAX_GAIN} step={0.02} onChange={(kd) => changeLearningGain('kd', kd)} />
-          </div>
-          <div className="response-note" aria-live="polite"><b>{response[0]}</b><span>{response[1]}</span></div>
-        </aside>
       </div>
     </section>
   );
@@ -479,16 +431,16 @@ function LearnView({ onComplete }) {
 
 function CodeModeSelector({ mode, onChange }) {
   const modes = [
-    { id: 'manual', label: 'Manual mode', detail: 'Write and edit the PID controller yourself.', meta: 'Full editor · JavaScript or Python' },
-    { id: 'helpful', label: 'No code mode', detail: 'Build working code through a guided, plain-language wizard.', meta: 'No coding experience needed' }
+    { id: 'helpful', label: 'No code', detail: 'Guide me step by step' },
+    { id: 'manual', label: 'Manual', detail: 'Let me edit the code' }
   ];
   return (
     <div className="code-mode-selector" role="radiogroup" aria-label="Code learning mode">
+      <span>BUILD MODE</span>
       {modes.map((item) => (
         <button key={item.id} className={mode === item.id ? 'active' : ''} onClick={() => onChange(item.id)} role="radio" aria-checked={mode === item.id}>
           <span className="code-mode-icon" aria-hidden="true">{item.id === 'manual' ? '{ }' : '✦'}</span>
           <span><b>{item.label}</b><small>{item.detail}</small></span>
-          <em>{item.meta}</em>
           <i aria-hidden="true">{mode === item.id ? '✓' : ''}</i>
         </button>
       ))}
@@ -579,8 +531,6 @@ function CodeView({ progress, updateProgress, toast, navigate }) {
     run: null
   }));
   const [testing, setTesting] = useState(false);
-  const [guideStep, setGuideStep] = useState(0);
-  const [benchView, setBenchView] = useState('both');
   const [benchTime, setBenchTime] = useState(0);
   const [scenario, setScenario] = useState(isCodeScenario(progress.codeScenario) ? progress.codeScenario : DEFAULT_SCENARIO);
   const editorRef = useRef();
@@ -614,14 +564,6 @@ function CodeView({ progress, updateProgress, toast, navigate }) {
     setResult({ status: 'idle', message: 'Controller changed. Validation reset — begin again with Easy 10°.', run: null });
     setBenchTime(0);
     updateProgress({ code: updated, helpfulStep: 0, ...clearCodeValidation(), tunePassed: false, tuneWarning: false, tuneScore: null, tuneWeakest: null });
-  };
-  const changeGain = (key, value) => {
-    const updated = { ...gains, [key]: value };
-    setGains(updated);
-    setScenario(DEFAULT_SCENARIO);
-    setResult({ status: 'idle', message: 'PID gains changed. Validation reset — begin again with Easy 10°.', run: null });
-    setBenchTime(0);
-    updateProgress({ gains: updated, ...clearCodeValidation(), tunePassed: false, tuneWarning: false, tuneScore: null, tuneWeakest: null });
   };
   const selectCodeMode = (nextMode) => {
     if (nextMode === codeMode) return;
@@ -747,14 +689,13 @@ function CodeView({ progress, updateProgress, toast, navigate }) {
     : result.run
       ? `${result.status === 'success' ? 'Validated' : 'Unstable'} user controller`
       : 'Awaiting user controller run';
-  const selectBenchView = (nextView) => { setBenchTime(0); setBenchView(nextView); };
   const nextStageAction = result.status === 'success' && !progress.codePassed ? nextCodeScenarioId(scenarioPasses) : null;
-  const flightReplay = (className = '') => <Suspense fallback={<div className="learn-flight-loading code-flight-loading">Loading aircraft…</div>}><LearnFlightDemo className={`code-flight-demo ${className}`} run={result.run} mode={benchMotion} label={benchLabel} idle={!result.run} onTime={benchView === 'both' ? setBenchTime : undefined} /></Suspense>;
-  const responseGraph = (synced = false) => <div className="code-graph-pane"><ResponseChart run={result.run} showError playbackTime={synced ? benchTime : null} animate={!synced} /><ResponseLegend /></div>;
+  const flightReplay = () => <Suspense fallback={<div className="learn-flight-loading code-flight-loading">Loading aircraft…</div>}><LearnFlightDemo className="code-flight-demo code-flight-split" run={result.run} mode={benchMotion} label={benchLabel} idle={!result.run} onTime={setBenchTime} /></Suspense>;
+  const responseGraph = () => <div className="code-graph-pane"><ResponseChart run={result.run} showError playbackTime={benchTime} animate={false} /><ResponseLegend /></div>;
 
   return (
     <section className="view active" id="code-view" aria-labelledby="code-title">
-      <div className="view-head compact-head"><div><p className="eyebrow"><span>Module 02</span> Controller workshop</p><h1 id="code-title">Build the <em>flight brain.</em></h1><p className="lede">Begin with proportional control, then add memory and damping one piece at a time. Every run steps the same Rapier aircraft used in Tune, Practice, and Race.</p></div><div className={`module-status ${progress.codePassed ? 'passed' : ''}`}><i /><span>{progress.codePassed ? 'Controller validated' : 'Validation pending'}</span></div></div>
+      <div className="view-head compact-head"><div><p className="eyebrow"><span>Module 02</span> Controller builder</p><h1 id="code-title">Build the <em>flight brain.</em></h1><p className="lede">Complete four guided code steps, then pass three flight goals. The controller starts with simple, safe PID defaults and every run appears in the preview.</p></div><div className={`module-status ${progress.codePassed ? 'passed' : ''}`}><i /><span>{progress.codePassed ? 'All goals passed' : `${passedStageCount}/3 goals passed`}</span></div></div>
       <CodeModeSelector mode={codeMode} onChange={selectCodeMode} />
       <div className="code-workspace">
         <div className={`editor-panel panel code-mode-${codeMode}`}>
@@ -822,25 +763,13 @@ function CodeView({ progress, updateProgress, toast, navigate }) {
             {codeMode === 'manual' && progress.codePassed && <button className="console-next" onClick={() => navigate('tune')}>Continue to Tune <span aria-hidden="true">→</span></button>}
           </div>
         </div>
-        <aside className="test-panel panel">
-          <div className="panel-title"><div><p className="panel-label">Rapier bench 02-A</p><h3>Physical attitude test</h3></div><span className="test-id">8.0 SEC</span></div>
-          <div className="code-gains"><div className="code-gains-head"><span>{codeMode === 'helpful' ? 'WIZARD-SELECTED PID VALUES' : 'PID VALUES'}</span>{codeMode === 'helpful' && <small>Editable for experimentation</small>}</div><div className="code-gain-grid"><GainSlider compact id="code-p" term="P" label="Proportional" value={gains.kp} max={MAX_GAIN} step={0.1} onChange={(value) => changeGain('kp', value)} /><GainSlider compact id="code-i" term="I" label="Integral" value={gains.ki} max={MAX_GAIN} step={0.02} onChange={(value) => changeGain('ki', value)} /><GainSlider compact id="code-d" term="D" label="Derivative" value={gains.kd} max={MAX_GAIN} step={0.05} onChange={(value) => changeGain('kd', value)} /></div></div>
-          <div className="code-scenarios"><CodeScenarioProgress value={scenario} onChange={changeScenario} passes={scenarioPasses} /></div>
-          <div className="code-visual-toolbar"><div><span>USER PID OUTPUT</span><b>{result.run ? 'Replay the physical test' : 'Run your code to begin'}</b></div><div role="tablist" aria-label="Bench visualization"><button className={benchView === 'both' ? 'active' : ''} onClick={() => selectBenchView('both')} role="tab" aria-selected={benchView === 'both'}>3D + graph</button><button className={benchView === 'three' ? 'active' : ''} onClick={() => selectBenchView('three')} role="tab" aria-selected={benchView === 'three'}>3D only</button><button className={benchView === 'graph' ? 'active' : ''} onClick={() => selectBenchView('graph')} role="tab" aria-selected={benchView === 'graph'}>Graph only</button></div></div>
-          <div className={`code-visual-stage view-${benchView}`}>{benchView === 'both' ? <div className="code-visual-split"><div className="code-flight-pane">{flightReplay('code-flight-split')}</div>{responseGraph(true)}</div> : benchView === 'three' ? flightReplay() : responseGraph()}</div>
-          <div className="metrics-row"><div><span>RMS error</span><b id="code-rms">{result.run ? result.run.rms.toFixed(1) : '—'}</b><small>degrees</small></div><div><span>Overshoot</span><b id="code-overshoot">{result.run ? Math.round(result.run.overshoot) : '—'}</b><small>percent</small></div><div><span>Control score</span><b id="code-score">{result.run?.score ?? '—'}</b><small>/ 100</small></div></div>
-          {codeMode === 'manual' ? (
-            <div className="pid-guide">
-              <div className="pid-guide-head"><div><p className="panel-label">Build your controller</p><h4>{pidGuide[guideStep].title}</h4></div><span>EDIT → RUN → OBSERVE</span></div>
-              <div className="pid-guide-tabs" role="tablist" aria-label="PID build steps">{pidGuide.map((step, index) => <button key={step.term} className={guideStep === index ? 'active' : ''} onClick={() => setGuideStep(index)} role="tab">{step.term}</button>)}</div>
-              <p>{pidGuide[guideStep].body}</p>
-              <pre><code>{pidGuide[guideStep][language]}</code></pre>
-            </div>
-          ) : (
-            <div className="helpful-bench-note">
-              <span aria-hidden="true">✦</span><p><b>The same real test</b>No code mode writes the controller, but it does not fake the result. Your generated code still flies the Rapier aircraft and must pass every angle.</p>
-            </div>
-          )}
+        <aside className="test-panel code-preview-panel panel">
+          <div className="panel-title"><div><p className="panel-label">Live preview</p><h3>See your controller fly</h3></div><span className="default-pid-chip">P 2.5 · I 0.1 · D 1.0</span></div>
+          <CodeScenarioProgress value={scenario} passes={scenarioPasses} />
+          <div className="code-preview-window">
+            <div className="code-preview-window-head"><span>{testing ? 'TEST RUNNING' : result.run ? (result.status === 'success' ? 'GOAL PASSED' : 'TRY AGAIN') : 'PREVIEW READY'}</span><b>{result.run ? `${result.run.score}/100 · ${scenarioDefinition(scenario).label}` : 'Run the current goal to animate'}</b></div>
+            <div className="code-visual-stage"><div className="code-visual-split"><div className="code-flight-pane">{flightReplay()}</div>{responseGraph()}</div></div>
+          </div>
         </aside>
       </div>
     </section>
@@ -850,10 +779,12 @@ function CodeView({ progress, updateProgress, toast, navigate }) {
 function tuningAdvice(gains, run, scenario) {
   if (!run) return 'Stepping the flight rigid body and measuring its attitude response…';
   if (gains.kp < 0.5) return 'The response lacks authority. Raise P until the aircraft reaches its command quickly.';
-  if (run.overshoot > 35) return 'The response is overshooting. Add D for damping, or back P down slightly.';
-  if (scenario === 'payload' && run.steadyError > 2) return 'The payload leaves a constant bias. Add a little I to remove the remaining error.';
-  if (run.settling > 5 && run.overshoot < 5) return 'The controller is heavily damped. Reduce D if the aircraft feels slow to react.';
   if (gains.ki > 0.85) return 'Integral is accumulating aggressively. Reduce I to avoid slow, swelling oscillation.';
+  if (run.overshoot > 35) return 'The response is overshooting. Add D for damping, or back P down slightly.';
+  if (run.steadyError > 0.7 && gains.kd >= 0.3) return scenario === 'payload'
+    ? 'The payload and airframe trim leave a constant bias. Add a little I to remove the remaining error.'
+    : 'The response is damped, but airframe trim leaves a small constant offset. Add a little I to remove it.';
+  if (run.settling > 5 && run.overshoot < 5) return 'The controller is heavily damped. Reduce D if the aircraft feels slow to react.';
   return `This is a stable response. Compare all ${SCENARIOS.length} scenarios before saving the tune.`;
 }
 
@@ -936,7 +867,7 @@ function TuneView({ progress, updateProgress, toast, navigate }) {
   return (
     <section className="view active" id="tune-view" aria-labelledby="tune-title">
       <div className="view-head compact-head"><div><p className="eyebrow"><span>Module 03</span> Tuning bay</p><h1 id="tune-title">Shape the <em>response.</em></h1><p className="lede">Compare the 10°, 20°, and 32° steps, then explore direction changes and disturbances across the full envelope. Reach {TUNE_PASS_SCORE} combined with every flight check above {TUNE_SCENARIO_FLOOR}.</p></div><ScenarioSelector value={scenario} onChange={selectScenario} /></div>
-      <div className="tune-grid"><aside className="tuner-panel panel"><div className="panel-title"><div><p className="panel-label">Gain controls</p><h3>Attitude controller</h3></div><button className="ghost-btn small" onClick={() => { const reset = { kp: 1, ki: 0, kd: 0 }; setGains(reset); setCombinedScore(null); updateProgress({ gains: reset, tunePassed: false, tuneWarning: false, tuneScore: null, tuneWeakest: null }); }}>Reset gains</button></div><GainSlider id="tune-p" term="P" label="Proportional" help="Immediate correction" value={gains.kp} max={MAX_GAIN} step={0.1} onChange={(value) => setGain('kp', value)} /><GainSlider id="tune-i" term="I" label="Integral" help="Removes steady error" value={gains.ki} max={MAX_GAIN} step={0.02} onChange={(value) => setGain('ki', value)} /><GainSlider id="tune-d" term="D" label="Derivative" help="Damps fast motion" value={gains.kd} max={MAX_GAIN} step={0.05} onChange={(value) => setGain('kd', value)} /><div className="tuning-tip"><span>COACH</span><p>{controller ? tuningAdvice(gains, run, scenario) : 'Fix the current Code tab controller before running this scenario.'}</p></div><button className="primary-btn full" id="save-tune" onClick={save} disabled={saving || !controller}>{!controller ? 'Fix controller in Code' : saving ? 'Running 4 physics checks…' : 'Save tune & run check'} <span>→</span></button>{progress.tunePassed && <button className="tune-practice-btn" id="go-practice" onClick={() => navigate('practice')}><span>TUNE SAVED · {progress.tuneScore}/100{progress.tuneWarning ? ' · WARNING' : ''}</span><b>Go to Practice flying <i>→</i></b></button>}</aside>
+      <div className="tune-grid"><aside className="tuner-panel panel"><div className="panel-title"><div><p className="panel-label">Gain controls</p><h3>Attitude controller</h3></div><button className="ghost-btn small" onClick={() => { const reset = { kp: 1, ki: 0, kd: 0 }; setGains(reset); setCombinedScore(null); updateProgress({ gains: reset, tunePassed: false, tuneWarning: false, tuneScore: null, tuneWeakest: null }); }}>Reset gains</button></div><GainSlider id="tune-p" term="P" label="Proportional" help="Immediate correction" value={gains.kp} max={MAX_GAINS.kp} step={0.1} onChange={(value) => setGain('kp', value)} /><GainSlider id="tune-i" term="I" label="Integral" help="Removes steady error" value={gains.ki} max={MAX_GAINS.ki} step={0.02} onChange={(value) => setGain('ki', value)} /><GainSlider id="tune-d" term="D" label="Derivative" help="Damps fast motion" value={gains.kd} max={MAX_GAINS.kd} step={0.05} onChange={(value) => setGain('kd', value)} /><div className="tuning-tip"><span>COACH</span><p>{controller ? tuningAdvice(gains, run, scenario) : 'Fix the current Code tab controller before running this scenario.'}</p></div><button className="primary-btn full" id="save-tune" onClick={save} disabled={saving || !controller}>{!controller ? 'Fix controller in Code' : saving ? 'Running 4 physics checks…' : 'Save tune & run check'} <span>→</span></button>{progress.tunePassed && <button className="tune-practice-btn" id="go-practice" onClick={() => navigate('practice')}><span>TUNE SAVED · {progress.tuneScore}/100{progress.tuneWarning ? ' · WARNING' : ''}</span><b>Go to Practice flying <i>→</i></b></button>}</aside>
         <div className="sim-panel panel"><div className="sim-toolbar"><div><span className="live-dot">{simulating ? 'SOLVING' : 'RAPIER TRACE'}</span><b>{scenarioDefinition(scenario).headline}</b></div><div className="sim-clock"><span>RAPIER ATTITUDE</span><b>{simTime.toFixed(1).padStart(4, '0')} s</b></div></div><div className="tune-visual tune-response-graph"><ResponseChart run={run} showError animate onTime={setSimTime} id="tune-chart" /><ResponseLegend /><div className={`wind-callout ${scenario === 'gust' ? 'visible' : ''}`}>WIND GUST <span>→</span></div></div><div className="metrics-row tune-metrics"><div><span>Settling time</span><b>{run ? run.settling.toFixed(1) : '—'}</b><small>seconds</small></div><div><span>Peak overshoot</span><b>{run ? Math.round(run.overshoot) : '—'}</b><small>percent</small></div><div><span>Steady error</span><b>{run ? run.steadyError.toFixed(1) : '—'}</b><small>degrees</small></div><div className="score-metric"><span>Stability score</span><b id="tune-score">{combinedScore ?? run?.score ?? '—'}</b><small>/ 100</small></div></div></div>
       </div>
       {warning && <TuneWarningDialog score={warning.score} weakest={warning.weakest} onClose={() => setWarning(null)} onProceed={() => { setWarning(null); navigate('practice'); }} proceedLabel="Practice anyway →" />}

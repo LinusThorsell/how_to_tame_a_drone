@@ -12,16 +12,6 @@ export const GUIDED_CONTROLLER_STEPS = Object.freeze([
     python: 'proportional = gains["kp"] * error'
   }),
   Object.freeze({
-    id: 'integral',
-    term: 'I',
-    title: 'Remember leftover error',
-    summary: 'Add a small memory so the controller can remove a persistent offset.',
-    explanation: 'We accumulate error over time, but limit that memory between −1 and 1. This anti-windup guard prevents old error from building an unsafe correction.',
-    action: 'Add error memory',
-    javascript: 'state.integral += error * dt;\nstate.integral = Math.max(-1, Math.min(1, state.integral));\nconst integral = gains.ki * state.integral;',
-    python: 'state["integral"] += error * dt\nstate["integral"] = max(-1, min(1, state["integral"]))\nintegral = gains["ki"] * state["integral"]'
-  }),
-  Object.freeze({
     id: 'derivative',
     term: 'D',
     title: 'Slow a fast approach',
@@ -30,6 +20,16 @@ export const GUIDED_CONTROLLER_STEPS = Object.freeze([
     action: 'Add derivative damping',
     javascript: 'const derivative = (error - state.previousError) / dt;\nstate.previousError = error;\nconst damping = gains.kd * derivative;',
     python: 'derivative = (error - state["previousError"]) / dt\nstate["previousError"] = error\ndamping = gains["kd"] * derivative'
+  }),
+  Object.freeze({
+    id: 'integral',
+    term: 'I',
+    title: 'Remove the leftover bias',
+    summary: 'Now that the response is damped, add a small memory to trim out the airframe imbalance.',
+    explanation: 'Real motors and weight distribution are never perfectly matched. We accumulate the remaining error over time, but limit that memory between −1 and 1 so old error cannot build an unsafe correction.',
+    action: 'Add trim memory',
+    javascript: 'state.integral += error * dt;\nstate.integral = Math.max(-1, Math.min(1, state.integral));\nconst integral = gains.ki * state.integral;',
+    python: 'state["integral"] += error * dt\nstate["integral"] = max(-1, min(1, state["integral"]))\nintegral = gains["ki"] * state["integral"]'
   }),
   Object.freeze({
     id: 'safety',
@@ -52,16 +52,16 @@ export function gainsForGuidedStep(completedSteps) {
   const count = boundedStepCount(completedSteps);
   return {
     kp: count >= 1 ? GUIDED_CONTROLLER_GAINS.kp : 0,
-    ki: count >= 2 ? GUIDED_CONTROLLER_GAINS.ki : 0,
-    kd: count >= 3 ? GUIDED_CONTROLLER_GAINS.kd : 0
+    ki: count >= 3 ? GUIDED_CONTROLLER_GAINS.ki : 0,
+    kd: count >= 2 ? GUIDED_CONTROLLER_GAINS.kd : 0
   };
 }
 
 export function buildGuidedController(language, completedSteps) {
   const count = boundedStepCount(completedSteps);
   const hasP = count >= 1;
-  const hasI = count >= 2;
-  const hasD = count >= 3;
+  const hasD = count >= 2;
+  const hasI = count >= 3;
   const hasSafety = count >= 4;
 
   if (language === 'python') {
@@ -70,11 +70,11 @@ export function buildGuidedController(language, completedSteps) {
       'def pid(error, dt, state, gains):'
     ];
     if (hasP) lines.push('    proportional = gains["kp"] * error');
-    if (hasI) lines.push('    state["integral"] += error * dt', '    state["integral"] = max(-1, min(1, state["integral"]))', '    integral = gains["ki"] * state["integral"]');
     if (hasD) lines.push('    derivative = (error - state["previousError"]) / dt', '    state["previousError"] = error', '    damping = gains["kd"] * derivative');
-    if (hasSafety) lines.push('    output = proportional + integral + damping', '    return max(-2.5, min(2.5, output))');
-    else if (hasD) lines.push('    return proportional + integral + damping');
-    else if (hasI) lines.push('    return proportional + integral');
+    if (hasI) lines.push('    state["integral"] += error * dt', '    state["integral"] = max(-1, min(1, state["integral"]))', '    integral = gains["ki"] * state["integral"]');
+    if (hasSafety) lines.push('    output = proportional + damping + integral', '    return max(-2.5, min(2.5, output))');
+    else if (hasI) lines.push('    return proportional + damping + integral');
+    else if (hasD) lines.push('    return proportional + damping');
     else if (hasP) lines.push('    return proportional');
     else lines.push('    return 0');
     return lines.join('\n');
@@ -85,11 +85,11 @@ export function buildGuidedController(language, completedSteps) {
     'function pid(error, dt, state, gains) {'
   ];
   if (hasP) lines.push('  const proportional = gains.kp * error;');
-  if (hasI) lines.push('', '  state.integral += error * dt;', '  state.integral = Math.max(-1, Math.min(1, state.integral));', '  const integral = gains.ki * state.integral;');
   if (hasD) lines.push('', '  const derivative = (error - state.previousError) / dt;', '  state.previousError = error;', '  const damping = gains.kd * derivative;');
-  if (hasSafety) lines.push('', '  const output = proportional + integral + damping;', '  return Math.max(-2.5, Math.min(2.5, output));');
-  else if (hasD) lines.push('', '  return proportional + integral + damping;');
-  else if (hasI) lines.push('', '  return proportional + integral;');
+  if (hasI) lines.push('', '  state.integral += error * dt;', '  state.integral = Math.max(-1, Math.min(1, state.integral));', '  const integral = gains.ki * state.integral;');
+  if (hasSafety) lines.push('', '  const output = proportional + damping + integral;', '  return Math.max(-2.5, Math.min(2.5, output));');
+  else if (hasI) lines.push('', '  return proportional + damping + integral;');
+  else if (hasD) lines.push('', '  return proportional + damping;');
   else if (hasP) lines.push('', '  return proportional;');
   else lines.push('  return 0;');
   lines.push('}');
