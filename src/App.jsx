@@ -34,6 +34,11 @@ import {
   TRAINING_GATES
 } from './flightCourse';
 import { COURSE_NAVIGATION, isViewUnlocked, resolveView } from './courseNavigation';
+import {
+  buildGuidedController,
+  gainsForGuidedStep,
+  GUIDED_CONTROLLER_STEPS
+} from './guidedController';
 
 const FlightScene = lazy(() => import('./components/FlightScene'));
 const LearnFlightDemo = lazy(() => import('./components/LearnFlightDemo'));
@@ -61,6 +66,8 @@ const baseProgress = {
   codeScenarioPasses: { easy: null, medium: null, hard: null },
   scenario: DEFAULT_SCENARIO,
   codeRequirementVersion: 0,
+  codeMode: 'manual',
+  helpfulStep: 0,
   validated: null,
   code: { ...defaultCode },
   gains: { kp: 1, ki: 0, kd: 0 },
@@ -243,6 +250,8 @@ function loadProgress() {
       ...stored,
       codeScenario,
       codeScenarioPasses,
+      codeMode: stored.codeMode === 'helpful' ? 'helpful' : 'manual',
+      helpfulStep: Math.max(0, Math.min(GUIDED_CONTROLLER_STEPS.length, Math.floor(Number(stored.helpfulStep) || 0))),
       scenario: isScenario(stored.scenario) ? stored.scenario : DEFAULT_SCENARIO,
       code,
       validated,
@@ -468,6 +477,88 @@ function LearnView({ onComplete }) {
   );
 }
 
+function CodeModeSelector({ mode, onChange }) {
+  const modes = [
+    { id: 'manual', label: 'Manual mode', detail: 'Write and edit the PID controller yourself.', meta: 'Full editor · JavaScript or Python' },
+    { id: 'helpful', label: 'No code mode', detail: 'Build working code through a guided, plain-language wizard.', meta: 'No coding experience needed' }
+  ];
+  return (
+    <div className="code-mode-selector" role="radiogroup" aria-label="Code learning mode">
+      {modes.map((item) => (
+        <button key={item.id} className={mode === item.id ? 'active' : ''} onClick={() => onChange(item.id)} role="radio" aria-checked={mode === item.id}>
+          <span className="code-mode-icon" aria-hidden="true">{item.id === 'manual' ? '{ }' : '✦'}</span>
+          <span><b>{item.label}</b><small>{item.detail}</small></span>
+          <em>{item.meta}</em>
+          <i aria-hidden="true">{mode === item.id ? '✓' : ''}</i>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function HelpfulCodeWizard({ language, source, completedSteps, activeStep, validationLabel, nextValidationLabel, validationComplete, testing, onLanguageChange, onSelectStep, onApplyStep, onRestart, onValidate, onContinueValidation, onContinueTune }) {
+  const complete = completedSteps >= GUIDED_CONTROLLER_STEPS.length;
+  const step = GUIDED_CONTROLLER_STEPS[activeStep];
+  const viewingCompletedStep = !complete && activeStep < completedSteps;
+  const preview = completedSteps ? source : buildGuidedController(language, 0);
+  return (
+    <div className="helpful-wizard">
+      <div className="helpful-toolbar">
+        <div className="language-tabs" role="tablist" aria-label="Programming language">
+          {['javascript', 'python'].map((item) => <button key={item} className={language === item ? 'active' : ''} onClick={() => onLanguageChange(item)} role="tab" aria-selected={language === item}>{item === 'javascript' ? 'JavaScript' : 'Python'}</button>)}
+        </div>
+        <button className="ghost-btn small" onClick={onRestart}>Restart wizard</button>
+      </div>
+      <div className="helpful-progress">
+        <div><span>GUIDED BUILD</span><b>{completedSteps} / {GUIDED_CONTROLLER_STEPS.length} steps added</b></div>
+        <i><b style={{ width: `${completedSteps / GUIDED_CONTROLLER_STEPS.length * 100}%` }} /></i>
+      </div>
+      <div className="helpful-step-tabs" role="tablist" aria-label="Controller builder steps">
+        {GUIDED_CONTROLLER_STEPS.map((item, index) => {
+          const available = index <= completedSteps;
+          const done = index < completedSteps;
+          return (
+            <button key={item.id} className={`${activeStep === index ? 'active' : ''} ${done ? 'done' : ''}`} onClick={() => onSelectStep(index)} disabled={!available} role="tab" aria-selected={activeStep === index}>
+              <span>{done ? '✓' : index + 1}</span><b>{item.term}</b>
+            </button>
+          );
+        })}
+      </div>
+      <div className="helpful-lesson" aria-live="polite">
+        <p className="panel-label">Step {activeStep + 1} · {step.term}</p>
+        <h3>{step.title}</h3>
+        <p className="helpful-summary">{step.summary}</p>
+        <div className="helpful-explanation"><span aria-hidden="true">?</span><p><b>What this means</b>{step.explanation}</p></div>
+        <div className="helpful-addition"><span>CODE THIS STEP ADDS</span><pre><code>{step[language]}</code></pre></div>
+        <div className="helpful-actions">
+          {viewingCompletedStep ? (
+            <button className="primary-btn" onClick={() => onSelectStep(activeStep + 1)}>Next explanation <span>→</span></button>
+          ) : !complete ? (
+            <button className="primary-btn" onClick={() => onApplyStep(activeStep)}>{step.action} <span>→</span></button>
+          ) : validationComplete ? (
+            <button className="primary-btn" id="continue-code" onClick={onContinueTune}>Continue to Tune <span>→</span></button>
+          ) : nextValidationLabel ? (
+            <button className="primary-btn" id="continue-code" onClick={onContinueValidation}>Continue to {nextValidationLabel} <span>→</span></button>
+          ) : (
+            <button className="run-btn" id="run-code" onClick={onValidate} disabled={testing}><span>▶</span> {testing ? 'Testing…' : `Run ${validationLabel} validation`}</button>
+          )}
+          <small>{validationComplete
+            ? 'All three physical tests passed. Tune is now unlocked.'
+            : nextValidationLabel
+              ? `${validationLabel} passed. Continue when you are ready for the next angle.`
+              : complete
+                ? 'Your controller is complete. It must still pass all three physical tests.'
+                : 'You can switch to Manual mode at any time to inspect or edit the generated code.'}</small>
+        </div>
+      </div>
+      <details className="helpful-code-preview" open={complete}>
+        <summary><span>Generated controller</span><b>{language === 'javascript' ? 'JAVASCRIPT' : 'PYTHON'} · READ ONLY</b></summary>
+        <pre><code>{preview}</code></pre>
+      </details>
+    </div>
+  );
+}
+
 function CodeView({ progress, updateProgress, toast, navigate }) {
   const scenarioPasses = progress.codeScenarioPasses || emptyCodeScenarioPasses();
   const passedStageCount = CODE_SCENARIOS.filter((item) => hasPassedCodeScenario(scenarioPasses, item.id)).length;
@@ -475,6 +566,9 @@ function CodeView({ progress, updateProgress, toast, navigate }) {
   const [language, setLanguage] = useState(progress.language);
   const [code, setCode] = useState(progress.code);
   const [gains, setGains] = useState(progress.gains);
+  const [codeMode, setCodeMode] = useState(progress.codeMode === 'helpful' ? 'helpful' : 'manual');
+  const [helpfulStep, setHelpfulStep] = useState(Math.max(0, Math.min(GUIDED_CONTROLLER_STEPS.length, progress.helpfulStep || 0)));
+  const [wizardStep, setWizardStep] = useState(Math.min(GUIDED_CONTROLLER_STEPS.length - 1, progress.helpfulStep || 0));
   const [result, setResult] = useState(() => ({
     status: progress.codePassed ? 'success' : 'idle',
     message: progress.codePassed
@@ -497,19 +591,29 @@ function CodeView({ progress, updateProgress, toast, navigate }) {
 
   const changeLanguage = (nextLanguage) => {
     if (nextLanguage === language) return;
+    const updatedCode = codeMode === 'helpful'
+      ? { ...code, [nextLanguage]: buildGuidedController(nextLanguage, helpfulStep) }
+      : code;
     setLanguage(nextLanguage);
+    setCode(updatedCode);
+    if (codeMode === 'manual') {
+      setHelpfulStep(0);
+      setWizardStep(0);
+    }
     setScenario(DEFAULT_SCENARIO);
     setBenchTime(0);
     setResult({ status: 'idle', message: 'Language changed. Start the validation path again with Easy 10°.', run: null });
-    updateProgress({ language: nextLanguage, code, ...clearCodeValidation(), tunePassed: false, tuneWarning: false, tuneScore: null, tuneWeakest: null });
+    updateProgress({ language: nextLanguage, code: updatedCode, helpfulStep: codeMode === 'helpful' ? helpfulStep : 0, ...clearCodeValidation(), tunePassed: false, tuneWarning: false, tuneScore: null, tuneWeakest: null });
   };
   const changeCode = (value) => {
     const updated = { ...code, [language]: value };
     setCode(updated);
+    setHelpfulStep(0);
+    setWizardStep(0);
     setScenario(DEFAULT_SCENARIO);
     setResult({ status: 'idle', message: 'Controller changed. Validation reset — begin again with Easy 10°.', run: null });
     setBenchTime(0);
-    updateProgress({ code: updated, ...clearCodeValidation(), tunePassed: false, tuneWarning: false, tuneScore: null, tuneWeakest: null });
+    updateProgress({ code: updated, helpfulStep: 0, ...clearCodeValidation(), tunePassed: false, tuneWarning: false, tuneScore: null, tuneWeakest: null });
   };
   const changeGain = (key, value) => {
     const updated = { ...gains, [key]: value };
@@ -518,6 +622,55 @@ function CodeView({ progress, updateProgress, toast, navigate }) {
     setResult({ status: 'idle', message: 'PID gains changed. Validation reset — begin again with Easy 10°.', run: null });
     setBenchTime(0);
     updateProgress({ gains: updated, ...clearCodeValidation(), tunePassed: false, tuneWarning: false, tuneScore: null, tuneWeakest: null });
+  };
+  const selectCodeMode = (nextMode) => {
+    if (nextMode === codeMode) return;
+    setCodeMode(nextMode);
+    setResult({ status: 'idle', message: nextMode === 'helpful' ? 'No code mode ready. Add each controller step, then begin validation.' : 'Manual editor ready. Your current controller is available to inspect or change.', run: null });
+    updateProgress({ codeMode: nextMode });
+  };
+  const applyGuidedStep = (stepIndex) => {
+    if (stepIndex !== helpfulStep || helpfulStep >= GUIDED_CONTROLLER_STEPS.length) return;
+    const nextStep = helpfulStep + 1;
+    const updatedCode = { ...code, [language]: buildGuidedController(language, nextStep) };
+    const updatedGains = gainsForGuidedStep(nextStep);
+    setCode(updatedCode);
+    setGains(updatedGains);
+    setHelpfulStep(nextStep);
+    setWizardStep(Math.min(nextStep, GUIDED_CONTROLLER_STEPS.length - 1));
+    setScenario(DEFAULT_SCENARIO);
+    setBenchTime(0);
+    setResult({
+      status: 'idle',
+      message: nextStep === GUIDED_CONTROLLER_STEPS.length
+        ? 'Controller assembled. Run Easy 10° to begin the physical validation path.'
+        : `${GUIDED_CONTROLLER_STEPS[stepIndex].term} added. Continue to ${GUIDED_CONTROLLER_STEPS[nextStep].term}.`,
+      run: null
+    });
+    updateProgress({
+      codeMode: 'helpful',
+      helpfulStep: nextStep,
+      code: updatedCode,
+      gains: updatedGains,
+      ...clearCodeValidation(),
+      tunePassed: false,
+      tuneWarning: false,
+      tuneScore: null,
+      tuneWeakest: null
+    });
+    toast(nextStep === GUIDED_CONTROLLER_STEPS.length ? 'Safe PID controller assembled' : `${GUIDED_CONTROLLER_STEPS[stepIndex].term} added to your controller`);
+  };
+  const restartHelpfulWizard = () => {
+    const updatedCode = { ...code, [language]: buildGuidedController(language, 0) };
+    const updatedGains = gainsForGuidedStep(0);
+    setCode(updatedCode);
+    setGains(updatedGains);
+    setHelpfulStep(0);
+    setWizardStep(0);
+    setScenario(DEFAULT_SCENARIO);
+    setBenchTime(0);
+    setResult({ status: 'idle', message: 'Wizard restarted. Begin by adding proportional control.', run: null });
+    updateProgress({ code: updatedCode, gains: updatedGains, helpfulStep: 0, ...clearCodeValidation(), tunePassed: false, tuneWarning: false, tuneScore: null, tuneWeakest: null });
   };
   const changeScenario = (nextScenario) => {
     if (!isCodeScenarioUnlocked(nextScenario, scenarioPasses)) {
@@ -530,6 +683,10 @@ function CodeView({ progress, updateProgress, toast, navigate }) {
     updateProgress({ codeScenario: nextScenario });
   };
   const validate = () => {
+    if (codeMode === 'helpful' && helpfulStep < GUIDED_CONTROLLER_STEPS.length) {
+      setResult({ status: 'error', message: 'Finish all four No code mode steps before running the aircraft test.', run: null });
+      return;
+    }
     if (lintErrors.length) {
       setResult({ status: 'error', message: `Fix ${lintErrors.length === 1 ? 'the lint error' : `${lintErrors.length} lint errors`} before starting the aircraft test.`, run: null });
       showControllerDiagnostics(editorRef);
@@ -598,63 +755,92 @@ function CodeView({ progress, updateProgress, toast, navigate }) {
   return (
     <section className="view active" id="code-view" aria-labelledby="code-title">
       <div className="view-head compact-head"><div><p className="eyebrow"><span>Module 02</span> Controller workshop</p><h1 id="code-title">Build the <em>flight brain.</em></h1><p className="lede">Begin with proportional control, then add memory and damping one piece at a time. Every run steps the same Rapier aircraft used in Tune, Practice, and Race.</p></div><div className={`module-status ${progress.codePassed ? 'passed' : ''}`}><i /><span>{progress.codePassed ? 'Controller validated' : 'Validation pending'}</span></div></div>
+      <CodeModeSelector mode={codeMode} onChange={selectCodeMode} />
       <div className="code-workspace">
-        <div className="editor-panel panel">
-          <div className="editor-toolbar">
-            <div className="language-tabs" role="tablist" aria-label="Programming language">
-              {['javascript', 'python'].map((item) => <button key={item} className={language === item ? 'active' : ''} onClick={() => changeLanguage(item)} role="tab">{item === 'javascript' ? 'JavaScript' : 'Python'}</button>)}
-            </div>
-            <div className="editor-actions">
-              <button className="ghost-btn" onClick={() => changeCode(defaultCode[language])}>Reset</button>
-              <button className="run-btn" id="run-code" onClick={validate} disabled={testing}><span>▶</span> {testing ? 'Testing…' : 'Run validation'}</button>
-            </div>
-          </div>
-          <div className="code-editor-wrap" onKeyDown={(event) => {
-            if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
-              event.preventDefault();
-              validate();
-            }
-          }}>
-            <CodeMirror
-              ref={editorRef}
-              value={source}
-              height="100%"
-              theme="none"
-              extensions={editorExtensions}
-              basicSetup={{
-                foldGutter: false,
-                syntaxHighlighting: false,
-                highlightActiveLine: true,
-                highlightActiveLineGutter: true,
-                highlightSelectionMatches: true,
-                autocompletion: true,
-                lintKeymap: true,
-                tabSize: 2
-              }}
-              indentWithTab={false}
-              onChange={changeCode}
+        <div className={`editor-panel panel code-mode-${codeMode}`}>
+          {codeMode === 'manual' ? (
+            <>
+              <div className="editor-toolbar">
+                <div className="language-tabs" role="tablist" aria-label="Programming language">
+                  {['javascript', 'python'].map((item) => <button key={item} className={language === item ? 'active' : ''} onClick={() => changeLanguage(item)} role="tab" aria-selected={language === item}>{item === 'javascript' ? 'JavaScript' : 'Python'}</button>)}
+                </div>
+                <div className="editor-actions">
+                  <button className="ghost-btn" onClick={() => changeCode(defaultCode[language])}>Reset</button>
+                  <button className="run-btn" id="run-code" onClick={validate} disabled={testing}><span>▶</span> {testing ? 'Testing…' : 'Run validation'}</button>
+                </div>
+              </div>
+              <div className="code-editor-wrap" onKeyDown={(event) => {
+                if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+                  event.preventDefault();
+                  validate();
+                }
+              }}>
+                <CodeMirror
+                  ref={editorRef}
+                  value={source}
+                  height="100%"
+                  theme="none"
+                  extensions={editorExtensions}
+                  basicSetup={{
+                    foldGutter: false,
+                    syntaxHighlighting: false,
+                    highlightActiveLine: true,
+                    highlightActiveLineGutter: true,
+                    highlightSelectionMatches: true,
+                    autocompletion: true,
+                    lintKeymap: true,
+                    tabSize: 2
+                  }}
+                  indentWithTab={false}
+                  onChange={changeCode}
+                />
+              </div>
+            </>
+          ) : (
+            <HelpfulCodeWizard
+              language={language}
+              source={source}
+              completedSteps={helpfulStep}
+              activeStep={wizardStep}
+              validationLabel={scenarioDefinition(scenario).label}
+              nextValidationLabel={nextStageAction ? scenarioDefinition(nextStageAction).label : null}
+              validationComplete={progress.codePassed}
+              testing={testing}
+              onLanguageChange={changeLanguage}
+              onSelectStep={(index) => setWizardStep(Math.max(0, Math.min(GUIDED_CONTROLLER_STEPS.length - 1, index)))}
+              onApplyStep={applyGuidedStep}
+              onRestart={restartHelpfulWizard}
+              onValidate={validate}
+              onContinueValidation={() => changeScenario(nextStageAction)}
+              onContinueTune={() => navigate('tune')}
             />
-          </div>
+          )}
           <div className={`console ${result.status}`} aria-live="polite">
             <span className="console-prompt">{result.status === 'success' ? '✓' : result.status === 'error' ? '×' : '›'}</span>
             <span className="console-message">{result.message}</span>
-            {nextStageAction && <button className="console-next stage-next" onClick={() => changeScenario(nextStageAction)}>Continue to {scenarioDefinition(nextStageAction).label} <span aria-hidden="true">→</span></button>}
-            {progress.codePassed && <button className="console-next" onClick={() => navigate('tune')}>Continue to Tune <span aria-hidden="true">→</span></button>}
+            {codeMode === 'manual' && nextStageAction && <button className="console-next stage-next" onClick={() => changeScenario(nextStageAction)}>Continue to {scenarioDefinition(nextStageAction).label} <span aria-hidden="true">→</span></button>}
+            {codeMode === 'manual' && progress.codePassed && <button className="console-next" onClick={() => navigate('tune')}>Continue to Tune <span aria-hidden="true">→</span></button>}
           </div>
         </div>
         <aside className="test-panel panel">
           <div className="panel-title"><div><p className="panel-label">Rapier bench 02-A</p><h3>Physical attitude test</h3></div><span className="test-id">8.0 SEC</span></div>
-          <div className="code-gains"><div className="code-gains-head"><span>PID VALUES</span></div><div className="code-gain-grid"><GainSlider compact id="code-p" term="P" label="Proportional" value={gains.kp} max={MAX_GAIN} step={0.1} onChange={(value) => changeGain('kp', value)} /><GainSlider compact id="code-i" term="I" label="Integral" value={gains.ki} max={MAX_GAIN} step={0.02} onChange={(value) => changeGain('ki', value)} /><GainSlider compact id="code-d" term="D" label="Derivative" value={gains.kd} max={MAX_GAIN} step={0.05} onChange={(value) => changeGain('kd', value)} /></div></div>
+          <div className="code-gains"><div className="code-gains-head"><span>{codeMode === 'helpful' ? 'WIZARD-SELECTED PID VALUES' : 'PID VALUES'}</span>{codeMode === 'helpful' && <small>Editable for experimentation</small>}</div><div className="code-gain-grid"><GainSlider compact id="code-p" term="P" label="Proportional" value={gains.kp} max={MAX_GAIN} step={0.1} onChange={(value) => changeGain('kp', value)} /><GainSlider compact id="code-i" term="I" label="Integral" value={gains.ki} max={MAX_GAIN} step={0.02} onChange={(value) => changeGain('ki', value)} /><GainSlider compact id="code-d" term="D" label="Derivative" value={gains.kd} max={MAX_GAIN} step={0.05} onChange={(value) => changeGain('kd', value)} /></div></div>
           <div className="code-scenarios"><CodeScenarioProgress value={scenario} onChange={changeScenario} passes={scenarioPasses} /></div>
           <div className="code-visual-toolbar"><div><span>USER PID OUTPUT</span><b>{result.run ? 'Replay the physical test' : 'Run your code to begin'}</b></div><div role="tablist" aria-label="Bench visualization"><button className={benchView === 'both' ? 'active' : ''} onClick={() => selectBenchView('both')} role="tab" aria-selected={benchView === 'both'}>3D + graph</button><button className={benchView === 'three' ? 'active' : ''} onClick={() => selectBenchView('three')} role="tab" aria-selected={benchView === 'three'}>3D only</button><button className={benchView === 'graph' ? 'active' : ''} onClick={() => selectBenchView('graph')} role="tab" aria-selected={benchView === 'graph'}>Graph only</button></div></div>
           <div className={`code-visual-stage view-${benchView}`}>{benchView === 'both' ? <div className="code-visual-split"><div className="code-flight-pane">{flightReplay('code-flight-split')}</div>{responseGraph(true)}</div> : benchView === 'three' ? flightReplay() : responseGraph()}</div>
           <div className="metrics-row"><div><span>RMS error</span><b id="code-rms">{result.run ? result.run.rms.toFixed(1) : '—'}</b><small>degrees</small></div><div><span>Overshoot</span><b id="code-overshoot">{result.run ? Math.round(result.run.overshoot) : '—'}</b><small>percent</small></div><div><span>Control score</span><b id="code-score">{result.run?.score ?? '—'}</b><small>/ 100</small></div></div>
-          <div className="pid-guide">
-            <div className="pid-guide-head"><div><p className="panel-label">Build your controller</p><h4>{pidGuide[guideStep].title}</h4></div><span>EDIT → RUN → OBSERVE</span></div>
-            <div className="pid-guide-tabs" role="tablist" aria-label="PID build steps">{pidGuide.map((step, index) => <button key={step.term} className={guideStep === index ? 'active' : ''} onClick={() => setGuideStep(index)} role="tab">{step.term}</button>)}</div>
-            <p>{pidGuide[guideStep].body}</p>
-            <pre><code>{pidGuide[guideStep][language]}</code></pre>
-          </div>
+          {codeMode === 'manual' ? (
+            <div className="pid-guide">
+              <div className="pid-guide-head"><div><p className="panel-label">Build your controller</p><h4>{pidGuide[guideStep].title}</h4></div><span>EDIT → RUN → OBSERVE</span></div>
+              <div className="pid-guide-tabs" role="tablist" aria-label="PID build steps">{pidGuide.map((step, index) => <button key={step.term} className={guideStep === index ? 'active' : ''} onClick={() => setGuideStep(index)} role="tab">{step.term}</button>)}</div>
+              <p>{pidGuide[guideStep].body}</p>
+              <pre><code>{pidGuide[guideStep][language]}</code></pre>
+            </div>
+          ) : (
+            <div className="helpful-bench-note">
+              <span aria-hidden="true">✦</span><p><b>The same real test</b>No code mode writes the controller, but it does not fake the result. Your generated code still flies the Rapier aircraft and must pass every angle.</p>
+            </div>
+          )}
         </aside>
       </div>
     </section>
