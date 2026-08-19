@@ -19,7 +19,7 @@ npm install
 npm run dev
 ```
 
-## Run with Docker Compose
+## Develop with Docker Compose
 
 ```bash
 docker compose up --build
@@ -31,7 +31,9 @@ Open <http://localhost:8080>. To use another host port:
 ROTOR_LAB_PORT=3000 docker compose up --build
 ```
 
-The container serves the app on port `8080` and exposes `/healthz` for readiness and liveness checks. It runs as a non-root user with a read-only filesystem and all Linux capabilities dropped.
+Compose runs Vite's development server in the container and bind-mounts the source tree, so edits to the app hot reload in the browser. Dependencies live in a Docker volume instead of the host bind mount. Rebuild the image after changing `package.json` or `package-lock.json`.
+
+The container serves the app on port `8080`. It runs as a non-root user with a read-only filesystem and all Linux capabilities dropped. Building the Dockerfile without a target still produces the production Nginx image with its `/healthz` endpoint.
 
 ## Deployment
 
@@ -43,8 +45,9 @@ then deploys it to <https://drone.linus.solutions>.
 ## Course flow
 
 1. Work through five short PID lessons and manipulate the response plot.
-2. Begin with the P-only JavaScript or Python starter, then use the Code Lab guide to add integral memory, derivative damping, and output limiting. Code validation runs the same Rapier rigid-body and motor loop used by Tune and Fly.
+2. Begin with the P-only JavaScript or Python starter, then use the Code Lab guide to add integral memory, derivative damping, and output limiting. Code validation runs the same Rapier rigid-body and motor loop used by Tune, Practice, and Race.
 3. Tune P, I, and D against a full-envelope 32° roll, yaw-step, gust, and offset-payload scenarios. The graph is measured from a Rapier rigid body using Three.js attitude math, the shared flight motor model, and the validated controller. Scores of 75+ overall and 60+ in every scenario are recommended; lower-scoring tunes can still be saved and flown after a stability warning.
-4. Load the controller into four independent roll, pitch, yaw, and altitude loops. Their outputs pass through a four-motor mixer into the Rapier flight simulator. Pilot input can command up to 32° of total tilt, and the resulting horizontal thrust physically increases speed. A saved tune unlocks the simulator; an unvalidated controller can still fly after a warning and falls back safely if it throws at runtime.
+4. Practice with four independent roll, pitch, yaw, and altitude loops. Their outputs pass through a four-motor mixer into the Rapier flight simulator. Pilot input can command up to 32° of total tilt, and the resulting horizontal thrust physically increases speed. A saved tune unlocks Practice; an unvalidated controller can still fly after a warning and falls back safely if it throws at runtime.
+5. Clear the three Practice gates to unlock the separate Race tab and timed Neon Gauntlet: a 12-gate course with narrower collidable frames, sharp line and altitude changes, illuminated floor guidance, a par time, and a saved personal best.
 
 Progress and code stay in the learner's browser via `localStorage`; there is no server-side data or external dependency.

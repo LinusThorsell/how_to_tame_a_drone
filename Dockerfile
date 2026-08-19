@@ -1,11 +1,23 @@
-FROM node:24-alpine AS build
+FROM node:24-alpine AS development
 
 WORKDIR /app
-COPY package.json package-lock.json ./
+RUN chown node:node /app
+
+USER node
+
+COPY --chown=node:node package.json package-lock.json ./
 RUN npm ci
-COPY index.html styles.css vite.config.js ./
-COPY public ./public
-COPY src ./src
+
+COPY --chown=node:node index.html styles.css vite.config.js ./
+COPY --chown=node:node public ./public
+COPY --chown=node:node src ./src
+
+EXPOSE 8080
+
+CMD ["npm", "run", "dev", "--", "--port", "8080"]
+
+FROM development AS build
+
 RUN npm run build
 
 FROM nginxinc/nginx-unprivileged:1.27-alpine

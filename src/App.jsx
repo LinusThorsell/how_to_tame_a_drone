@@ -24,14 +24,19 @@ import {
   SCENARIOS,
   TUNE_CHECK_SCENARIOS
 } from './scenarios';
+import {
+  distanceToFirstGate,
+  FLIGHT_START,
+  formatRaceTime,
+  gatesForMode,
+  RACE_GATES,
+  RACE_PAR_SECONDS,
+  TRAINING_GATES
+} from './flightCourse';
+import { COURSE_NAVIGATION, isViewUnlocked, resolveView } from './courseNavigation';
 
 const FlightScene = lazy(() => import('./components/FlightScene'));
 const LearnFlightDemo = lazy(() => import('./components/LearnFlightDemo'));
-const CHECKPOINTS = [
-  { x: 0, y: 2.7, z: 16 },
-  { x: 7, y: 3.8, z: 36 },
-  { x: -5, y: 2.2, z: 56 }
-];
 
 const STORAGE_KEY = 'rotor-lab-react-v1';
 const MAX_GAIN = 6;
@@ -58,8 +63,26 @@ const baseProgress = {
   codeRequirementVersion: 0,
   validated: null,
   code: { ...defaultCode },
-  gains: { kp: 1, ki: 0, kd: 0 }
+  gains: { kp: 1, ki: 0, kd: 0 },
+  practicePassed: false,
+  raceBest: null
 };
+
+function initialFlightTelemetry(mode = 'training') {
+  return {
+    altitude: FLIGHT_START.y,
+    speed: 0,
+    tilt: 0,
+    commandedTilt: 0,
+    heading: 0,
+    battery: 100,
+    elapsed: 0,
+    checkpoint: 0,
+    distance: distanceToFirstGate(mode),
+    motors: [43, 43, 43, 43],
+    controllerFault: false
+  };
+}
 
 const lessons = [
   { title: 'The control loop', time: '4 min', focus: 'loop', demoMode: 'balanced', kicker: '01 · THE CONTROL LOOP', heading: 'Every correction starts with error.', body: 'The controller compares where the drone should be with where it is now. That difference is the <strong>error</strong>. PID turns that error, its history, and its rate of change into a motor command.', cue: 'Follow the glow from target → PID → drone, then watch the measured angle return.', takeaway: 'Error is not failure—it is the information your controller needs.', next: 'Next: Proportional' },
@@ -224,6 +247,10 @@ function loadProgress() {
       code,
       validated,
       gains: resetExercise ? { ...baseProgress.gains } : gains,
+      practicePassed: resetExercise ? false : Boolean(stored.practicePassed || stored.raceBest),
+      raceBest: Number.isFinite(Number(stored.raceBest)) && Number(stored.raceBest) > 0
+        ? Number(stored.raceBest)
+        : null,
       codePassed,
       tunePassed: resetExercise
         ? false
@@ -245,21 +272,34 @@ function Brand() {
   );
 }
 
+function LockIcon() {
+  return (
+    <svg className="nav-lock-icon" viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M4.75 7V5.25a3.25 3.25 0 0 1 6.5 0V7" />
+      <rect x="3" y="7" width="10" height="7" rx="1.5" />
+      <path d="M8 10v1.5" />
+    </svg>
+  );
+}
+
 function Header({ view, navigate, progress }) {
-  const completed = [progress.learned, progress.codePassed, progress.tunePassed].filter(Boolean).length;
-  const percentage = Math.round(completed / 3 * 100);
+  const completed = [progress.learned, progress.codePassed, progress.tunePassed, progress.practicePassed].filter(Boolean).length;
+  const percentage = Math.round(completed / 4 * 100);
   return (
     <header className="topbar">
       <Brand />
       <nav className="course-nav" aria-label="Course modules">
-        {['learn', 'code', 'tune', 'fly'].map((item, index) => (
-          <button key={item} className={`nav-item ${view === item ? 'active' : ''}`} onClick={() => navigate(item)} data-view={item}>
-            <span>0{index + 1}</span> {item[0].toUpperCase() + item.slice(1)}
-          </button>
-        ))}
+        {COURSE_NAVIGATION.map((item, index) => {
+          const locked = !isViewUnlocked(item.id, progress);
+          return (
+            <button key={item.id} className={`nav-item ${view === item.id ? 'active' : ''} ${locked ? 'locked' : ''}`} onClick={() => navigate(item.id)} data-view={item.id} disabled={locked} title={locked ? `Finish the previous stage to unlock ${item.label}` : undefined} aria-label={locked ? `${item.label}, locked` : item.label}>
+              <span>0{index + 1}</span> {item.label} {locked && <LockIcon />}
+            </button>
+          );
+        })}
       </nav>
       <div className="course-progress" aria-label="Course progress">
-        <div><span>{percentage}% complete</span><b id="progress-count">{completed}/3</b></div>
+        <div><span>{percentage}% complete</span><b id="progress-count">{completed}/4</b></div>
         <div className="progress-track"><i style={{ width: `${percentage}%` }} /></div>
       </div>
     </header>
@@ -557,7 +597,7 @@ function CodeView({ progress, updateProgress, toast, navigate }) {
 
   return (
     <section className="view active" id="code-view" aria-labelledby="code-title">
-      <div className="view-head compact-head"><div><p className="eyebrow"><span>Module 02</span> Controller workshop</p><h1 id="code-title">Build the <em>flight brain.</em></h1><p className="lede">Begin with proportional control, then add memory and damping one piece at a time. Every run steps the same Rapier aircraft used in Tune and Fly.</p></div><div className={`module-status ${progress.codePassed ? 'passed' : ''}`}><i /><span>{progress.codePassed ? 'Controller validated' : 'Validation pending'}</span></div></div>
+      <div className="view-head compact-head"><div><p className="eyebrow"><span>Module 02</span> Controller workshop</p><h1 id="code-title">Build the <em>flight brain.</em></h1><p className="lede">Begin with proportional control, then add memory and damping one piece at a time. Every run steps the same Rapier aircraft used in Tune, Practice, and Race.</p></div><div className={`module-status ${progress.codePassed ? 'passed' : ''}`}><i /><span>{progress.codePassed ? 'Controller validated' : 'Validation pending'}</span></div></div>
       <div className="code-workspace">
         <div className="editor-panel panel">
           <div className="editor-toolbar">
@@ -713,45 +753,178 @@ function TuneView({ progress, updateProgress, toast, navigate }) {
       <div className="tune-grid"><aside className="tuner-panel panel"><div className="panel-title"><div><p className="panel-label">Gain controls</p><h3>Attitude controller</h3></div><button className="ghost-btn small" onClick={() => { const reset = { kp: 1, ki: 0, kd: 0 }; setGains(reset); setCombinedScore(null); updateProgress({ gains: reset, tunePassed: false, tuneWarning: false, tuneScore: null, tuneWeakest: null }); }}>Reset gains</button></div><GainSlider id="tune-p" term="P" label="Proportional" help="Immediate correction" value={gains.kp} max={MAX_GAIN} step={0.1} onChange={(value) => setGain('kp', value)} /><GainSlider id="tune-i" term="I" label="Integral" help="Removes steady error" value={gains.ki} max={MAX_GAIN} step={0.02} onChange={(value) => setGain('ki', value)} /><GainSlider id="tune-d" term="D" label="Derivative" help="Damps fast motion" value={gains.kd} max={MAX_GAIN} step={0.05} onChange={(value) => setGain('kd', value)} /><div className="tuning-tip"><span>COACH</span><p>{controller ? tuningAdvice(gains, run, scenario) : 'Fix the current Code tab controller before running this scenario.'}</p></div><button className="primary-btn full" id="save-tune" onClick={save} disabled={saving || !controller}>{!controller ? 'Fix controller in Code' : saving ? 'Running 4 physics checks…' : 'Save tune & run check'} <span>→</span></button></aside>
         <div className="sim-panel panel"><div className="sim-toolbar"><div><span className="live-dot">{simulating ? 'SOLVING' : 'RAPIER TRACE'}</span><b>{scenarioDefinition(scenario).headline}</b></div><div className="sim-clock"><span>RAPIER ATTITUDE</span><b>{simTime.toFixed(1).padStart(4, '0')} s</b></div></div><div className="tune-visual tune-response-graph"><ResponseChart run={run} showError animate onTime={setSimTime} id="tune-chart" /><ResponseLegend /><div className={`wind-callout ${scenario === 'gust' ? 'visible' : ''}`}>WIND GUST <span>→</span></div></div><div className="metrics-row tune-metrics"><div><span>Settling time</span><b>{run ? run.settling.toFixed(1) : '—'}</b><small>seconds</small></div><div><span>Peak overshoot</span><b>{run ? Math.round(run.overshoot) : '—'}</b><small>percent</small></div><div><span>Steady error</span><b>{run ? run.steadyError.toFixed(1) : '—'}</b><small>degrees</small></div><div className="score-metric"><span>Stability score</span><b id="tune-score">{combinedScore ?? run?.score ?? '—'}</b><small>/ 100</small></div></div></div>
       </div>
-      {warning && <TuneWarningDialog score={warning.score} weakest={warning.weakest} onClose={() => setWarning(null)} onProceed={() => { setWarning(null); navigate('fly'); }} proceedLabel="Fly anyway →" />}
+      {warning && <TuneWarningDialog score={warning.score} weakest={warning.weakest} onClose={() => setWarning(null)} onProceed={() => { setWarning(null); navigate('practice'); }} proceedLabel="Practice anyway →" />}
     </section>
   );
 }
 
-function FlyView({ progress, navigate, toast }) {
+function ChallengeReadyDialog({ best, onStart, onPractice }) {
+  return (
+    <div className="race-dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="challenge-ready-title">
+      <div className="race-dialog">
+        <span className="race-dialog-icon" aria-hidden="true">⚑</span>
+        <p className="eyebrow"><span>Training complete</span> Challenge unlocked</p>
+        <h2 id="challenge-ready-title">You’re ready for the Neon Gauntlet.</h2>
+        <p>Twelve narrower gates, hard elevation changes, and real frame collisions. Follow the paired floor lights, turn into each gate, and race the clock.</p>
+        <div className="race-dialog-stats">
+          <span><b>{RACE_GATES.length}</b> gates</span>
+          <span><b>{formatRaceTime(RACE_PAR_SECONDS)}</b> par</span>
+          <span><b>{best ? formatRaceTime(best) : '—'}</b> personal best</span>
+        </div>
+        <div className="race-dialog-actions">
+          <button className="ghost-btn" onClick={onPractice}>Keep practising</button>
+          <button className="primary-btn" onClick={onStart} autoFocus>Open Race <span>→</span></button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RaceResultDialog({ result, best, onRestart, onTraining }) {
+  const underPar = result.time <= RACE_PAR_SECONDS;
+  return (
+    <div className="race-dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="race-result-title">
+      <div className="race-dialog result-dialog">
+        <span className="race-dialog-icon finish" aria-hidden="true">✓</span>
+        <p className="eyebrow"><span>Challenge complete</span> All {RACE_GATES.length} gates cleared</p>
+        <h2 id="race-result-title">{result.isBest ? 'New personal best.' : 'Finish line crossed.'}</h2>
+        <div className="race-result-time">{formatRaceTime(result.time)}</div>
+        <p>{underPar
+          ? `You beat the ${formatRaceTime(RACE_PAR_SECONDS)} par time by ${formatRaceTime(RACE_PAR_SECONDS - result.time)}.`
+          : `Clean run. Find ${formatRaceTime(result.time - RACE_PAR_SECONDS)} to beat the ${formatRaceTime(RACE_PAR_SECONDS)} par time.`}</p>
+        <div className="race-dialog-stats result-stats">
+          <span><b>{formatRaceTime(best)}</b> personal best</span>
+          <span><b>{underPar ? 'PAR BEATEN' : 'FINISHED'}</b> result</span>
+        </div>
+        <div className="race-dialog-actions">
+          <button className="ghost-btn" onClick={onTraining}>Training range</button>
+          <button className="primary-btn" onClick={onRestart} autoFocus>Race again <span>→</span></button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FlightView({ mode, progress, updateProgress, navigate, toast }) {
   const [launched, setLaunched] = useState(false);
   const [resetSignal, setResetSignal] = useState(0);
-  const [telemetry, setTelemetry] = useState({ altitude: 0, speed: 0, tilt: 0, commandedTilt: 0, heading: 0, battery: 100, checkpoint: 0, distance: CHECKPOINTS[0].z, motors: [43, 43, 43, 43], controllerFault: false });
+  const [telemetry, setTelemetry] = useState(() => initialFlightTelemetry(mode));
   const [warningOpen, setWarningOpen] = useState(false);
-  const ready = progress.tunePassed;
+  const [challengeReady, setChallengeReady] = useState(false);
+  const [raceCountdown, setRaceCountdown] = useState(null);
+  const [raceResult, setRaceResult] = useState(null);
+  const ready = mode === 'race' ? progress.practicePassed : progress.tunePassed;
   const controllerWarning = !progress.codePassed || !progress.validated?.source;
   const hasFlightWarning = progress.tuneWarning || controllerWarning;
+  const gates = gatesForMode(mode);
+  const checkpoint = telemetry.checkpoint;
+  const countingDown = mode === 'race' && raceCountdown > 0;
+  const flightActive = launched && !challengeReady && !raceResult && !countingDown;
   const controller = useMemo(() => {
     const language = progress.validated?.language || progress.language;
     const source = progress.validated?.source || progress.code?.[language];
     if (!source) return null;
     try { return compileController(language, source); } catch { return null; }
   }, [progress.code, progress.language, progress.validated]);
-  const arm = () => { setWarningOpen(false); setLaunched(true); setResetSignal((value) => value + 1); toast('Three.js flight controller armed — use W A S D to move'); };
+  useEffect(() => {
+    if (!countingDown) return undefined;
+    const timer = window.setTimeout(() => setRaceCountdown((value) => value - 1), 1000);
+    return () => window.clearTimeout(timer);
+  }, [countingDown, raceCountdown]);
+  useEffect(() => {
+    if (mode === 'race' && raceCountdown === 0) toast('GO — challenge clock running');
+  }, [mode, raceCountdown, toast]);
+  useEffect(() => {
+    if (mode === 'training'
+      && launched
+      && telemetry.checkpoint >= TRAINING_GATES.length
+      && !challengeReady) {
+      if (!progress.practicePassed) updateProgress({ practicePassed: true });
+      setChallengeReady(true);
+    }
+  }, [challengeReady, launched, mode, progress.practicePassed, telemetry.checkpoint, updateProgress]);
+
+  const arm = () => {
+    setWarningOpen(false);
+    setTelemetry(initialFlightTelemetry('training'));
+    setLaunched(true);
+    setResetSignal((value) => value + 1);
+    toast('Three.js flight controller armed — use W A S D to move');
+  };
   const launch = () => {
     if (!ready) return;
     if (hasFlightWarning) setWarningOpen(true);
     else arm();
   };
-  const checkpoint = telemetry.checkpoint;
-  const onCheckpoint = useCallback((nextCheckpoint) => {
-    if (nextCheckpoint < CHECKPOINTS.length) toast(`Checkpoint ${nextCheckpoint} cleared`);
-    else toast('Training range complete — excellent flying');
-  }, [toast]);
+  const onCheckpoint = useCallback((nextCheckpoint, elapsed) => {
+    const courseLength = mode === 'race' ? RACE_GATES.length : TRAINING_GATES.length;
+    if (nextCheckpoint < courseLength) {
+      toast(mode === 'race'
+        ? `Gate ${nextCheckpoint} of ${courseLength} cleared`
+        : `Checkpoint ${nextCheckpoint} cleared`);
+      return;
+    }
+    if (mode === 'training') {
+      updateProgress({ practicePassed: true });
+      setChallengeReady(true);
+      toast('Training complete — timed challenge unlocked');
+      return;
+    }
+    const time = Math.max(0.1, elapsed);
+    const isBest = !progress.raceBest || time < progress.raceBest;
+    if (isBest) updateProgress({ raceBest: time });
+    setRaceCountdown(null);
+    setRaceResult({ time, isBest });
+    toast(isBest ? 'Challenge complete — new personal best' : 'Challenge complete — finish time recorded');
+  }, [mode, progress.raceBest, toast, updateProgress]);
   const onTelemetry = useCallback((data) => setTelemetry(data), []);
+  const startRace = () => {
+    setRaceResult(null);
+    setRaceCountdown(3);
+    setTelemetry(initialFlightTelemetry('race'));
+    setLaunched(true);
+    setResetSignal((value) => value + 1);
+  };
+  const keepPractising = () => {
+    setChallengeReady(false);
+    setTelemetry(initialFlightTelemetry('training'));
+    setResetSignal((value) => value + 1);
+    toast('Training range reset');
+  };
+  const restartRace = () => {
+    setRaceResult(null);
+    setRaceCountdown(3);
+    setTelemetry(initialFlightTelemetry('race'));
+    setResetSignal((value) => value + 1);
+  };
+  const returnToTraining = () => {
+    navigate('practice');
+  };
+  const resetFlight = () => {
+    setTelemetry(initialFlightTelemetry(mode));
+    setResetSignal((value) => value + 1);
+    if (mode === 'race') {
+      setRaceResult(null);
+      setRaceCountdown(3);
+      toast('Race reset — clock starts after the countdown');
+    } else {
+      toast('Aircraft returned to launch position');
+    }
+  };
+  const status = countingDown ? 'COUNTDOWN' : flightActive ? (mode === 'race' ? 'RACING' : 'ACTIVE') : launched ? 'PAUSED' : 'STANDBY';
+  const bestTime = raceResult
+    ? Math.min(progress.raceBest ?? Infinity, raceResult.time)
+    : progress.raceBest;
 
   return (
-    <section className="view active fly-view" id="fly-view" aria-labelledby="fly-title">
-      <div className="flight-frame">
-        <Suspense fallback={<div className="three-loading"><span>Loading Three.js flight world…</span></div>}>
-          <FlightScene launched={launched} controller={controller} gains={progress.gains} resetSignal={resetSignal} onTelemetry={onTelemetry} onCheckpoint={onCheckpoint} />
-        </Suspense>
-        <div className="flight-topbar"><div><p className="eyebrow"><span>Module 04</span> Rapier 6-DOF flight</p><h1 id="fly-title">Training Range <em>Alpha</em></h1></div><div className={`flight-status ${launched ? 'live' : ''}`}><span><i /> FLIGHT SYSTEMS</span><b>{launched ? 'ACTIVE' : 'STANDBY'}</b></div></div>
+    <section className="view active fly-view" id={`${mode === 'race' ? 'race' : 'practice'}-view`} aria-labelledby={`${mode === 'race' ? 'race' : 'practice'}-title`}>
+      <div className={`flight-frame ${mode === 'race' ? 'race-mode' : ''}`}>
+        <div className="flight-canvas-slot">
+          <Suspense fallback={<div className="three-loading"><span>Loading Three.js flight world…</span></div>}>
+            <FlightScene mode={mode} launched={flightActive} controller={controller} gains={progress.gains} resetSignal={resetSignal} onTelemetry={onTelemetry} onCheckpoint={onCheckpoint} />
+          </Suspense>
+        </div>
+        <div className="flight-topbar"><div><p className="eyebrow"><span>Module {mode === 'race' ? '05' : '04'}</span> {mode === 'race' ? 'Timed championship course' : 'Practice range · Rapier 6-DOF flight'}</p><h1 id={`${mode === 'race' ? 'race' : 'practice'}-title`}>{mode === 'race' ? <>Neon Gauntlet <em>Race</em></> : <>Practice Range <em>Alpha</em></>}</h1></div><div className={`flight-status ${flightActive ? 'live' : ''}`}><span><i /> FLIGHT SYSTEMS</span><b>{status}</b></div></div>
         <div className="flight-hud left-hud"><div className="hud-block"><span>ALTITUDE</span><b>{telemetry.altitude.toFixed(1)}</b><small>METERS</small></div><div className="hud-block"><span>AIRSPEED</span><b>{telemetry.speed.toFixed(1)}</b><small>M / S</small></div><div className="hud-block"><span>ATTITUDE</span><b>{Math.round(telemetry.tilt)}°</b><small>{Math.round(telemetry.commandedTilt)}° COMMAND</small></div><div className="hud-block"><span>HEADING</span><b>{String(Math.round(telemetry.heading)).padStart(3, '0')}</b><small>DEGREES</small></div></div>
         <div className="flight-hud right-hud">
           <div className="battery"><span>BATTERY</span><b>{Math.round(telemetry.battery)}%</b><i><em style={{ width: `${telemetry.battery}%` }} /></i></div>
@@ -759,10 +932,35 @@ function FlyView({ progress, navigate, toast }) {
           <div className="motor-mixer"><span>MOTOR THRUST · %</span><div>{telemetry.motors.map((motor, index) => <b key={index}>M{index + 1}<em>{motor}</em></b>)}</div></div>
           <div className="controller-chip render-chip"><span>PHYSICS / RENDERER</span><b>RAPIER · THREE.JS</b></div>
         </div>
-        <div className="flight-message"><span>{checkpoint >= CHECKPOINTS.length ? 'COURSE COMPLETE' : `CHECKPOINT 0${checkpoint + 1}`}</span><b>{checkpoint >= CHECKPOINTS.length ? 'Control loop proven in flight' : 'Fly through the illuminated gate'}</b><small>{checkpoint >= CHECKPOINTS.length ? 'All checkpoints cleared' : `${telemetry.distance.toFixed(0)} m to target`}</small></div>
-        <div className="flight-controls"><div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>Tilt ·32° / speed</span></div><div><kbd>↑</kbd><kbd>↓</kbd><span>Altitude</span></div><div><kbd>←</kbd><kbd>→</kbd><span>Yaw</span></div><button onClick={() => { setResetSignal((value) => value + 1); setTelemetry({ altitude: 2.2, speed: 0, tilt: 0, commandedTilt: 0, heading: 0, battery: 100, checkpoint: 0, distance: CHECKPOINTS[0].z, motors: [43, 43, 43, 43], controllerFault: false }); toast('Aircraft returned to launch position'); }}>Reset flight</button></div>
-        <div className={`launch-overlay ${launched ? 'hidden' : ''}`}><div className="launch-card"><span className="launch-icon" aria-hidden="true">⌁</span><p className="eyebrow"><span>Pre-flight check</span></p><h2>Your controller earns the controls.</h2><p>Save a tune for the full 32° flight envelope. Low scores and unvalidated controllers remain flyable after a warning.</p><div className="checklist"><button onClick={() => navigate('code')}><i className={progress.codePassed ? 'done' : 'warning'}>{progress.codePassed ? '✓' : '!'}</i><span><b>Controller validation</b><small>{progress.codePassed ? 'Bench test passed' : 'Not validated · flight warning'}</small></span><em>Open code lab →</em></button><button onClick={() => navigate('tune')}><i className={progress.tunePassed ? (progress.tuneWarning ? 'warning' : 'done') : ''}>{progress.tunePassed ? (progress.tuneWarning ? '!' : '✓') : '○'}</i><span><b>Flight-envelope tune</b><small>{progress.tunePassed ? `${progress.tuneScore}/100 saved${progress.tuneWarning ? ' · stability warning' : ''}` : `Save any score · ${TUNE_PASS_SCORE}+ recommended`}</small></span><em>Open tuning bay →</em></button></div><button className="primary-btn full" id="launch-flight" onClick={launch} disabled={!ready}>Launch simulator <span>→</span></button></div></div>
-        {warningOpen && <TuneWarningDialog score={progress.tuneScore} weakest={progress.tuneWeakest} controllerWarning={controllerWarning} onClose={() => { setWarningOpen(false); navigate(controllerWarning ? 'code' : 'tune'); }} onProceed={arm} proceedLabel="Arm and fly anyway" />}
+        {mode === 'race' ? (
+          <div className={`race-hud ${telemetry.elapsed > RACE_PAR_SECONDS ? 'over-par' : ''}`}>
+            <span>TIMED CHALLENGE · PAR {formatRaceTime(RACE_PAR_SECONDS)}</span>
+            <b>{formatRaceTime(raceResult?.time ?? telemetry.elapsed)}</b>
+            <small>GATE {String(Math.min(checkpoint + 1, gates.length)).padStart(2, '0')} / {gates.length} · {telemetry.distance.toFixed(0)} M TO TARGET</small>
+            <i><em style={{ width: `${Math.min(100, checkpoint / gates.length * 100)}%` }} /></i>
+          </div>
+        ) : (
+          <div className="flight-message"><span>{checkpoint >= TRAINING_GATES.length ? 'COURSE COMPLETE' : `CHECKPOINT 0${checkpoint + 1}`}</span><b>{checkpoint >= TRAINING_GATES.length ? 'Control loop proven in flight' : 'Fly through the illuminated gate'}</b><small>{checkpoint >= TRAINING_GATES.length ? 'All checkpoints cleared' : `${telemetry.distance.toFixed(0)} m to target`}</small></div>
+        )}
+        <div className="flight-controls"><div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>Tilt ·32° / speed</span></div><div><kbd>↑</kbd><kbd>↓</kbd><span>Altitude</span></div><div><kbd>←</kbd><kbd>→</kbd><span>Yaw</span></div><button onClick={resetFlight}>Reset {mode === 'race' ? 'race' : 'flight'}</button></div>
+        {mode === 'race' ? (
+          <div className={`launch-overlay ${launched ? 'hidden' : ''}`}>
+            <div className="launch-card race-start-card">
+              <span className="launch-icon race-launch-icon" aria-hidden="true">⚑</span>
+              <p className="eyebrow"><span>Race unlocked</span> Neon Gauntlet</p>
+              <h2>Thread every gate. Beat the clock.</h2>
+              <p>The paired floor lights mark the racing line. Twelve narrow, collidable gates demand sharper turns and altitude control than Practice.</p>
+              <div className="race-dialog-stats race-start-stats"><span><b>{RACE_GATES.length}</b> gates</span><span><b>{formatRaceTime(RACE_PAR_SECONDS)}</b> par</span><span><b>{progress.raceBest ? formatRaceTime(progress.raceBest) : '—'}</b> personal best</span></div>
+              <button className="primary-btn full" id="launch-race" onClick={startRace}>Start race <span>→</span></button>
+            </div>
+          </div>
+        ) : (
+          <div className={`launch-overlay ${launched ? 'hidden' : ''}`}><div className="launch-card"><span className="launch-icon" aria-hidden="true">⌁</span><p className="eyebrow"><span>Pre-flight check</span></p><h2>Your controller earns the controls.</h2><p>Save a tune for the full 32° flight envelope. Low scores and unvalidated controllers remain flyable after a warning.</p><div className="checklist"><button onClick={() => navigate('code')}><i className={progress.codePassed ? 'done' : 'warning'}>{progress.codePassed ? '✓' : '!'}</i><span><b>Controller validation</b><small>{progress.codePassed ? 'Bench test passed' : 'Not validated · flight warning'}</small></span><em>Open code lab →</em></button><button onClick={() => navigate('tune')}><i className={progress.tunePassed ? (progress.tuneWarning ? 'warning' : 'done') : ''}>{progress.tunePassed ? (progress.tuneWarning ? '!' : '✓') : '○'}</i><span><b>Flight-envelope tune</b><small>{progress.tunePassed ? `${progress.tuneScore}/100 saved${progress.tuneWarning ? ' · stability warning' : ''}` : `Save any score · ${TUNE_PASS_SCORE}+ recommended`}</small></span><em>Open tuning bay →</em></button></div><button className="primary-btn full" id="launch-flight" onClick={launch} disabled={!ready}>Launch Practice <span>→</span></button></div></div>
+        )}
+        {mode === 'training' && warningOpen && <TuneWarningDialog score={progress.tuneScore} weakest={progress.tuneWeakest} controllerWarning={controllerWarning} onClose={() => { setWarningOpen(false); navigate(controllerWarning ? 'code' : 'tune'); }} onProceed={arm} proceedLabel="Practice anyway" />}
+        {mode === 'training' && challengeReady && <ChallengeReadyDialog best={progress.raceBest} onStart={() => navigate('race')} onPractice={keepPractising} />}
+        {countingDown && <div className="race-countdown" aria-live="assertive"><span>RACE STARTS IN</span><b key={raceCountdown}>{raceCountdown}</b><small>Follow the bright floor lights</small></div>}
+        {raceResult && <RaceResultDialog result={raceResult} best={bestTime} onRestart={restartRace} onTraining={returnToTraining} />}
       </div>
     </section>
   );
@@ -770,22 +968,35 @@ function FlyView({ progress, navigate, toast }) {
 
 export default function App() {
   const [progress, setProgress] = useState(loadProgress);
-  const [view, setView] = useState(() => ['learn', 'code', 'tune', 'fly'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'learn');
+  const [view, setView] = useState(() => resolveView(location.hash.slice(1), progress));
   const [toastMessage, setToastMessage] = useState('');
   const toastTimer = useRef();
   useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(progress)); }, [progress]);
   useEffect(() => {
-    const hashChange = () => { const next = location.hash.slice(1); if (['learn', 'code', 'tune', 'fly'].includes(next)) setView(next); };
+    const unlockProgress = {
+      learned: progress.learned,
+      codePassed: progress.codePassed,
+      tunePassed: progress.tunePassed,
+      practicePassed: progress.practicePassed
+    };
+    const hashChange = () => {
+      const next = resolveView(location.hash.slice(1), unlockProgress);
+      setView(next);
+      if (location.hash !== `#${next}`) history.replaceState(null, '', `#${next}`);
+    };
     window.addEventListener('hashchange', hashChange);
+    hashChange();
     return () => window.removeEventListener('hashchange', hashChange);
-  }, []);
+  }, [progress.learned, progress.codePassed, progress.tunePassed, progress.practicePassed]);
   const updateProgress = useCallback((patch) => setProgress((current) => ({ ...current, ...patch })), []);
   const toast = useCallback((message) => {
     setToastMessage(message);
     window.clearTimeout(toastTimer.current);
     toastTimer.current = window.setTimeout(() => setToastMessage(''), 2600);
   }, []);
-  const navigate = useCallback((next) => {
+  const navigate = useCallback((requested) => {
+    const legacySafe = requested === 'fly' ? 'practice' : requested;
+    const next = COURSE_NAVIGATION.some((item) => item.id === legacySafe) ? legacySafe : 'learn';
     setView(next); history.replaceState(null, '', `#${next}`); window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
   const completeLearn = () => { updateProgress({ learned: true }); toast('Foundations complete — welcome to the Code Lab'); navigate('code'); };
@@ -797,7 +1008,8 @@ export default function App() {
         {view === 'learn' && <LearnView onComplete={completeLearn} />}
         {view === 'code' && <CodeView progress={progress} updateProgress={updateProgress} toast={toast} navigate={navigate} />}
         {view === 'tune' && <TuneView progress={progress} updateProgress={updateProgress} toast={toast} navigate={navigate} />}
-        {view === 'fly' && <FlyView progress={progress} navigate={navigate} toast={toast} />}
+        {view === 'practice' && <FlightView key="practice" mode="training" progress={progress} updateProgress={updateProgress} navigate={navigate} toast={toast} />}
+        {view === 'race' && <FlightView key="race" mode="race" progress={progress} updateProgress={updateProgress} navigate={navigate} toast={toast} />}
       </main>
       <footer><span>KAST MED LITEN DRÖNARE / HiQ</span><span>Course by Linus Thorsell &amp; Olof Åhren for HiQ</span><button onClick={() => { if (window.confirm('Reset all course progress, code, and saved gains?')) { localStorage.removeItem(STORAGE_KEY); setProgress(structuredClone(baseProgress)); setView('learn'); } }}>Reset course progress</button></footer>
       <div className={`toast ${toastMessage ? 'show' : ''}`} role="status" aria-live="polite">{toastMessage}</div>
