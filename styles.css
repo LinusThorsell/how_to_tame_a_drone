@@ -369,6 +369,11 @@ input[type="range"]::-webkit-slider-thumb { appearance: none; width: 13px; heigh
 .tuning-tip { margin: 30px 0 17px; border: 1px solid rgba(255,0,150,.14); background: var(--cyan-dim); padding: 14px; }
 .tuning-tip span { font: 10px var(--mono); color: var(--cyan); letter-spacing: .1em; }
 .tuning-tip p { color: var(--muted); margin: 8px 0 0; font-size: 12px; line-height: 1.65; }
+.tune-practice-btn { width: 100%; margin-top: 10px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1px solid rgba(110,231,168,.4); border-radius: 5px; background: rgba(110,231,168,.07); color: var(--green); cursor: pointer; text-align: left; transition: border-color .18s ease, background .18s ease, transform .18s ease; }
+.tune-practice-btn:hover { border-color: rgba(110,231,168,.72); background: rgba(110,231,168,.12); transform: translateY(-1px); }
+.tune-practice-btn span { color: rgba(110,231,168,.72); font: 8px var(--mono); letter-spacing: .07em; }
+.tune-practice-btn b { font-size: 12px; white-space: nowrap; }
+.tune-practice-btn i { margin-left: 7px; font-style: normal; }
 .sim-panel { position: relative; }
 .sim-toolbar { height: 60px; display: flex; justify-content: space-between; align-items: center; padding: 0 22px; border-bottom: 1px solid var(--line); }
 .sim-toolbar > div:first-child { display: flex; align-items: center; gap: 18px; }
