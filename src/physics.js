@@ -101,6 +101,14 @@ export function readFlightInputs(pressed) {
   };
 }
 
+export function mergeFlightInputs(...sources) {
+  const axes = ['forwardInput', 'rightInput', 'upInput', 'yawInput'];
+  return Object.fromEntries(axes.map((axis) => [
+    axis,
+    clamp(sources.reduce((sum, source) => sum + (Number(source?.[axis]) || 0), 0), -1, 1)
+  ]));
+}
+
 export function builtInController(gains) {
   return (error, dt, memory) => {
     memory.integral = clamp(memory.integral + error * dt, -1, 1);

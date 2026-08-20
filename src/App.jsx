@@ -922,7 +922,101 @@ function RaceResultDialog({ result, best, onRestart, onTraining }) {
   );
 }
 
+function TouchJoystick({ label, hint, enabled, onChange }) {
+  const pointer = useRef(null);
+  const onChangeRef = useRef(onChange);
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+  onChangeRef.current = onChange;
+
+  const release = useCallback((event) => {
+    if (event && pointer.current !== event.pointerId) return;
+    pointer.current = null;
+    setPosition({ x: 0, y: 0 });
+    onChangeRef.current({ x: 0, y: 0 });
+  }, []);
+
+  useEffect(() => {
+    if (!enabled) release();
+    return release;
+  }, [enabled, release]);
+
+  const update = (event) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const radius = Math.max(1, Math.min(rect.width, rect.height) * 0.36);
+    let x = (event.clientX - (rect.left + rect.width / 2)) / radius;
+    let y = ((rect.top + rect.height / 2) - event.clientY) / radius;
+    const magnitude = Math.hypot(x, y);
+    if (magnitude > 1) {
+      x /= magnitude;
+      y /= magnitude;
+    }
+    if (Math.abs(x) < 0.04) x = 0;
+    if (Math.abs(y) < 0.04) y = 0;
+    setPosition({ x, y });
+    onChangeRef.current({ x, y });
+  };
+
+  const start = (event) => {
+    if (!enabled || pointer.current !== null) return;
+    pointer.current = event.pointerId;
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    update(event);
+  };
+  const move = (event) => {
+    if (pointer.current === event.pointerId) update(event);
+  };
+
+  return (
+    <div className="touch-stick" role="group" aria-label={`${label}: ${hint}`}>
+      <span>{label}</span>
+      <div
+        className="touch-stick-pad"
+        onPointerDown={start}
+        onPointerMove={move}
+        onPointerUp={release}
+        onPointerCancel={release}
+      >
+        <i className="touch-stick-axis horizontal" aria-hidden="true" />
+        <i className="touch-stick-axis vertical" aria-hidden="true" />
+        <b
+          aria-hidden="true"
+          style={{ transform: `translate(calc(-50% + ${position.x * 31}px), calc(-50% - ${position.y * 31}px))` }}
+        />
+      </div>
+      <small>{hint}</small>
+    </div>
+  );
+}
+
+function MobileFlightControls({ enabled, controlsRef }) {
+  const updateLeft = useCallback(({ x, y }) => {
+    controlsRef.current.yawInput = -x;
+    controlsRef.current.upInput = y;
+  }, [controlsRef]);
+  const updateRight = useCallback(({ x, y }) => {
+    controlsRef.current.rightInput = x;
+    controlsRef.current.forwardInput = y;
+  }, [controlsRef]);
+
+  return (
+    <div className={`mobile-flight-controls ${enabled ? '' : 'disabled'}`} aria-label="Touch flight controls">
+      <TouchJoystick label="ALT / YAW" hint="up · turn" enabled={enabled} onChange={updateLeft} />
+      <TouchJoystick label="FLIGHT" hint="forward · side" enabled={enabled} onChange={updateRight} />
+    </div>
+  );
+}
+
+function FullscreenIcon({ active }) {
+  return active ? (
+    <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 3v5H3M12 3v5h5M8 17v-5H3M12 17v-5h5" /></svg>
+  ) : (
+    <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 3H3v5M12 3h5v5M8 17H3v-5M12 17h5v-5" /></svg>
+  );
+}
+
 function FlightView({ mode, progress, updateProgress, navigate, toast }) {
+  const flightFrameRef = useRef(null);
+  const touchControlsRef = useRef({ forwardInput: 0, rightInput: 0, upInput: 0, yawInput: 0 });
   const [launched, setLaunched] = useState(false);
   const [resetSignal, setResetSignal] = useState(0);
   const [telemetry, setTelemetry] = useState(() => initialFlightTelemetry(mode));
@@ -930,6 +1024,7 @@ function FlightView({ mode, progress, updateProgress, navigate, toast }) {
   const [challengeReady, setChallengeReady] = useState(false);
   const [raceCountdown, setRaceCountdown] = useState(null);
   const [raceResult, setRaceResult] = useState(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const ready = mode === 'race' ? progress.practicePassed : progress.tunePassed;
   const controllerWarning = !progress.codePassed || !progress.validated?.source;
   const hasFlightWarning = progress.tuneWarning || controllerWarning;
@@ -951,6 +1046,20 @@ function FlightView({ mode, progress, updateProgress, navigate, toast }) {
   useEffect(() => {
     if (mode === 'race' && raceCountdown === 0) toast('GO — challenge clock running');
   }, [mode, raceCountdown, toast]);
+  useEffect(() => {
+    const touchControls = touchControlsRef.current;
+    const syncFullscreen = () => {
+      const activeElement = document.fullscreenElement || document.webkitFullscreenElement;
+      setIsFullscreen(activeElement === flightFrameRef.current);
+    };
+    document.addEventListener('fullscreenchange', syncFullscreen);
+    document.addEventListener('webkitfullscreenchange', syncFullscreen);
+    return () => {
+      document.removeEventListener('fullscreenchange', syncFullscreen);
+      document.removeEventListener('webkitfullscreenchange', syncFullscreen);
+      Object.assign(touchControls, { forwardInput: 0, rightInput: 0, upInput: 0, yawInput: 0 });
+    };
+  }, []);
   useEffect(() => {
     if (mode === 'training'
       && launched
@@ -1028,6 +1137,25 @@ function FlightView({ mode, progress, updateProgress, navigate, toast }) {
       toast('Aircraft returned to launch position');
     }
   };
+  const toggleFullscreen = async () => {
+    const frame = flightFrameRef.current;
+    if (!frame) return;
+    const activeElement = document.fullscreenElement || document.webkitFullscreenElement;
+    try {
+      if (activeElement) {
+        if (document.exitFullscreen) await document.exitFullscreen();
+        else if (document.webkitExitFullscreen) await document.webkitExitFullscreen();
+      } else if (frame.requestFullscreen) {
+        await frame.requestFullscreen({ navigationUI: 'hide' });
+      } else if (frame.webkitRequestFullscreen) {
+        await frame.webkitRequestFullscreen();
+      } else {
+        toast('Fullscreen is not supported by this browser');
+      }
+    } catch {
+      toast('Fullscreen could not be opened');
+    }
+  };
   const status = countingDown ? 'COUNTDOWN' : flightActive ? (mode === 'race' ? 'RACING' : 'ACTIVE') : launched ? 'PAUSED' : 'STANDBY';
   const bestTime = raceResult
     ? Math.min(progress.raceBest ?? Infinity, raceResult.time)
@@ -1035,13 +1163,13 @@ function FlightView({ mode, progress, updateProgress, navigate, toast }) {
 
   return (
     <section className="view active fly-view" id={`${mode === 'race' ? 'race' : 'practice'}-view`} aria-labelledby={`${mode === 'race' ? 'race' : 'practice'}-title`}>
-      <div className={`flight-frame ${mode === 'race' ? 'race-mode' : ''}`}>
+      <div ref={flightFrameRef} className={`flight-frame ${mode === 'race' ? 'race-mode' : ''} ${isFullscreen ? 'is-fullscreen' : ''}`}>
         <div className="flight-canvas-slot">
           <Suspense fallback={<div className="three-loading"><span>Loading Three.js flight world…</span></div>}>
-            <FlightScene mode={mode} launched={flightActive} controller={controller} gains={progress.gains} resetSignal={resetSignal} onTelemetry={onTelemetry} onCheckpoint={onCheckpoint} />
+            <FlightScene mode={mode} launched={flightActive} controller={controller} gains={progress.gains} resetSignal={resetSignal} touchControlsRef={touchControlsRef} onTelemetry={onTelemetry} onCheckpoint={onCheckpoint} />
           </Suspense>
         </div>
-        <div className="flight-topbar"><div><p className="eyebrow"><span>Module {mode === 'race' ? '05' : '04'}</span> {mode === 'race' ? 'Timed championship course' : 'Practice range · Rapier 6-DOF flight'}</p><h1 id={`${mode === 'race' ? 'race' : 'practice'}-title`}>{mode === 'race' ? <>Neon Gauntlet <em>Race</em></> : <>Practice Range <em>Alpha</em></>}</h1></div><div className={`flight-status ${flightActive ? 'live' : ''}`}><span><i /> FLIGHT SYSTEMS</span><b>{status}</b></div></div>
+        <div className="flight-topbar"><div><p className="eyebrow"><span>Module {mode === 'race' ? '05' : '04'}</span> {mode === 'race' ? 'Timed championship course' : 'Practice range · Rapier 6-DOF flight'}</p><h1 id={`${mode === 'race' ? 'race' : 'practice'}-title`}>{mode === 'race' ? <>Neon Gauntlet <em>Race</em></> : <>Practice Range <em>Alpha</em></>}</h1></div><div className="flight-system-actions"><div className={`flight-status ${flightActive ? 'live' : ''}`}><span><i /> FLIGHT SYSTEMS</span><b>{status}</b></div><button className="fullscreen-btn" type="button" onClick={toggleFullscreen} aria-pressed={isFullscreen} title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}><FullscreenIcon active={isFullscreen} /><span>{isFullscreen ? 'Exit' : 'Fullscreen'}</span></button></div></div>
         <div className="flight-hud left-hud"><div className="hud-block"><span>ALTITUDE</span><b>{telemetry.altitude.toFixed(1)}</b><small>METERS</small></div><div className="hud-block"><span>AIRSPEED</span><b>{telemetry.speed.toFixed(1)}</b><small>M / S</small></div><div className="hud-block"><span>ATTITUDE</span><b>{Math.round(telemetry.tilt)}°</b><small>{Math.round(telemetry.commandedTilt)}° COMMAND</small></div><div className="hud-block"><span>HEADING</span><b>{String(Math.round(telemetry.heading)).padStart(3, '0')}</b><small>DEGREES</small></div></div>
         <div className="flight-hud right-hud">
           <div className="battery"><span>BATTERY</span><b>{Math.round(telemetry.battery)}%</b><i><em style={{ width: `${telemetry.battery}%` }} /></i></div>
@@ -1059,6 +1187,7 @@ function FlightView({ mode, progress, updateProgress, navigate, toast }) {
         ) : (
           <div className="flight-message"><span>{checkpoint >= TRAINING_GATES.length ? 'COURSE COMPLETE' : `CHECKPOINT 0${checkpoint + 1}`}</span><b>{checkpoint >= TRAINING_GATES.length ? 'Control loop proven in flight' : 'Fly through the illuminated gate'}</b><small>{checkpoint >= TRAINING_GATES.length ? 'All checkpoints cleared' : `${telemetry.distance.toFixed(0)} m to target`}</small></div>
         )}
+        <MobileFlightControls enabled={flightActive} controlsRef={touchControlsRef} />
         <div className="flight-controls"><div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>Tilt ·32° / speed</span></div><div><kbd>↑</kbd><kbd>↓</kbd><span>Altitude</span></div><div><kbd>←</kbd><kbd>→</kbd><span>Yaw</span></div><button onClick={resetFlight}>Reset {mode === 'race' ? 'race' : 'flight'}</button></div>
         {mode === 'race' ? (
           <div className={`launch-overlay ${launched ? 'hidden' : ''}`}>

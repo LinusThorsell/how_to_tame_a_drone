@@ -12,6 +12,7 @@ import {
   clamp,
   createMemory,
   deg,
+  mergeFlightInputs,
   rad,
   readFlightInputs
 } from '../physics';
@@ -270,7 +271,7 @@ function createFlightState(motors, gains) {
   };
 }
 
-function Simulator({ launched, mode = 'training', controller, gains, resetSignal, onTelemetry, onCheckpoint }) {
+function Simulator({ launched, mode = 'training', controller, gains, resetSignal, touchControlsRef, onTelemetry, onCheckpoint }) {
   const gates = gatesForMode(mode);
   const challenge = mode === 'race';
   const { camera } = useThree();
@@ -338,7 +339,10 @@ function Simulator({ launched, mode = 'training', controller, gains, resetSignal
     attitude.setFromQuaternion(orientation, 'YXZ');
 
     flight.elapsed += delta;
-    const { forwardInput, rightInput, upInput, yawInput } = readFlightInputs(keys.current);
+    const { forwardInput, rightInput, upInput, yawInput } = mergeFlightInputs(
+      readFlightInputs(keys.current),
+      touchControlsRef?.current
+    );
     flight.altitudeTarget = clamp(flight.altitudeTarget + upInput * delta * 2.2, 0.45, 10);
     flight.yawTarget = wrapAngle(flight.yawTarget + yawInput * delta * 1.1);
     // Keep diagonal input inside the same circular attitude envelope as a

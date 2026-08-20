@@ -4,6 +4,7 @@ import {
   builtInController,
   compileController,
   defaultCode,
+  mergeFlightInputs,
   readFlightInputs
 } from './physics.js';
 import { simulateRapierTuning } from './rapierTuning.js';
@@ -142,5 +143,20 @@ test('lateral and yaw controls follow chase-camera screen space', () => {
     rightInput: -1,
     upInput: 0,
     yawInput: 1
+  });
+});
+
+test('touch and keyboard flight inputs combine without exceeding the control envelope', () => {
+  const keyboard = readFlightInputs(new Set(['KeyW', 'ArrowLeft']));
+  assert.deepEqual(mergeFlightInputs(keyboard, {
+    forwardInput: 0.7,
+    rightInput: -0.45,
+    upInput: 0.25,
+    yawInput: -0.4
+  }), {
+    forwardInput: 1,
+    rightInput: -0.45,
+    upInput: 0.25,
+    yawInput: 0.6
   });
 });

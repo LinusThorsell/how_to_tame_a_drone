@@ -455,12 +455,14 @@ input[type="range"]::-webkit-slider-thumb { appearance: none; width: 13px; heigh
 .view.fly-view { padding: 20px clamp(14px, 2vw, 30px) 32px; }
 .flight-frame { max-width: 1550px; height: calc(100vh - 124px); min-height: 650px; margin: auto; position: relative; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 10px; background: #190b1b; }
 .flight-frame.race-mode { border-color: rgba(255,0,150,.46); box-shadow: inset 0 0 70px rgba(255,0,150,.04), 0 0 28px rgba(155,81,224,.09); }
+.flight-frame:fullscreen, .flight-frame.is-fullscreen, .flight-frame:-webkit-full-screen { width: 100vw; max-width: none; height: 100dvh; min-height: 0; margin: 0; border: 0; border-radius: 0; }
 .flight-canvas-slot { position: absolute; inset: 0; overflow: hidden; }
 .flight-canvas-slot > .three-flight-canvas { width: 100% !important; height: 100% !important; display: block; }
 .flight-canvas-slot canvas { width: 100% !important; height: 100% !important; display: block; }
 .three-loading { position: absolute; inset: 0; display: grid; place-items: center; background: #160313; color: var(--cyan); font: 11px var(--mono); letter-spacing: .12em; text-transform: uppercase; }
 .flight-topbar { position: absolute; top: 0; left: 0; right: 0; padding: 23px 28px; display: flex; justify-content: space-between; align-items: flex-start; pointer-events: none; background: linear-gradient(rgba(3,10,18,.65), transparent); }
 .flight-topbar h1 { font-size: 28px; letter-spacing: -.02em; text-transform: uppercase; }
+.flight-system-actions { display: flex; align-items: flex-start; gap: 13px; }
 .flight-status { text-align: right; }
 .flight-status span, .flight-status b { display: block; font: 10px var(--mono); letter-spacing: .12em; }
 .flight-status span { color: var(--muted); }
@@ -468,6 +470,10 @@ input[type="range"]::-webkit-slider-thumb { appearance: none; width: 13px; heigh
 .flight-status b { color: var(--amber); margin-top: 6px; }
 .flight-status.live span i { background: var(--green); box-shadow: 0 0 7px var(--green); }
 .flight-status.live b { color: var(--green); }
+.fullscreen-btn { min-width: 39px; height: 39px; display: flex; align-items: center; justify-content: center; gap: 7px; padding: 0 10px; pointer-events: auto; border: 1px solid rgba(255,255,255,.16); border-radius: 4px; background: rgba(15,3,18,.7); color: var(--muted); cursor: pointer; backdrop-filter: blur(8px); transition: color .18s ease, border-color .18s ease, background .18s ease; }
+.fullscreen-btn:hover { border-color: rgba(255,0,150,.55); background: rgba(255,0,150,.12); color: var(--cyan); }
+.fullscreen-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.fullscreen-btn span { font: 9px var(--mono); letter-spacing: .06em; text-transform: uppercase; }
 .flight-hud { position: absolute; top: 120px; pointer-events: none; }
 .left-hud { left: 28px; }
 .right-hud { right: 28px; width: 175px; }
@@ -505,6 +511,17 @@ input[type="range"]::-webkit-slider-thumb { appearance: none; width: 13px; heigh
 .flight-controls span { color: var(--muted); font: 9px var(--mono); margin-left: 5px; text-transform: uppercase; }
 .flight-controls button { border: 0; border-left: 1px solid var(--line); background: none; color: var(--muted); font: 10px var(--mono); text-transform: uppercase; cursor: pointer; padding-left: 16px; }
 .flight-controls button:hover { color: var(--cyan); }
+.mobile-flight-controls { display: none; }
+.touch-stick { width: 112px; display: grid; justify-items: center; gap: 5px; color: rgba(246,218,239,.72); font: 8px var(--mono); letter-spacing: .1em; text-align: center; text-transform: uppercase; text-shadow: 0 2px 5px #09010a; pointer-events: none; user-select: none; -webkit-user-select: none; }
+.touch-stick > span { color: var(--ink); }
+.touch-stick > small { color: rgba(246,218,239,.56); font: 7px var(--mono); letter-spacing: .07em; }
+.touch-stick-pad { width: 108px; height: 108px; position: relative; overflow: hidden; border: 1px solid rgba(255,255,255,.22); border-radius: 50%; background: radial-gradient(circle, rgba(255,0,150,.07) 0 29%, transparent 30%), rgba(15,3,18,.43); box-shadow: inset 0 0 28px rgba(255,0,150,.08), 0 8px 24px rgba(0,0,0,.22); pointer-events: auto; touch-action: none; }
+.touch-stick-pad::after { content: ""; position: absolute; inset: 12px; border: 1px solid rgba(255,255,255,.07); border-radius: 50%; pointer-events: none; }
+.touch-stick-axis { position: absolute; left: 50%; top: 50%; background: rgba(255,255,255,.1); pointer-events: none; }
+.touch-stick-axis.horizontal { width: 66%; height: 1px; transform: translate(-50%, -50%); }
+.touch-stick-axis.vertical { width: 1px; height: 66%; transform: translate(-50%, -50%); }
+.touch-stick-pad b { width: 43px; height: 43px; position: absolute; z-index: 1; left: 50%; top: 50%; border: 1px solid rgba(255,0,150,.76); border-radius: 50%; background: radial-gradient(circle at 35% 30%, rgba(255,255,255,.22), transparent 28%), rgba(60,9,53,.88); box-shadow: 0 0 18px rgba(255,0,150,.24), inset 0 0 10px rgba(255,0,150,.17); pointer-events: none; }
+.mobile-flight-controls.disabled { opacity: 0; visibility: hidden; }
 .launch-overlay { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(3,10,18,.76); backdrop-filter: blur(5px); z-index: 5; }
 .launch-overlay.hidden { opacity: 0; pointer-events: none; transition: opacity .4s ease; }
 .launch-card { width: min(540px, calc(100% - 32px)); padding: 36px; background: #25102b; border: 1px solid var(--line-strong); box-shadow: 0 30px 90px rgba(0,0,0,.5); text-align: center; }
@@ -738,6 +755,11 @@ footer button:hover { color: var(--red); }
   .tune-metrics { grid-template-columns: 1fr 1fr; }
   .left-hud { left: 12px; top: 95px; }
   .right-hud { right: 12px; }
+  .flight-topbar h1 { font-size: 21px; }
+  .flight-topbar .eyebrow { font-size: 8px; }
+  .flight-system-actions { gap: 6px; }
+  .fullscreen-btn { width: 37px; min-width: 37px; padding: 0; }
+  .fullscreen-btn span { display: none; }
   .flight-message { top: 235px; }
   .race-hud { top: 210px; width: 250px; }
   .flight-topbar { padding: 18px; }
@@ -753,5 +775,31 @@ footer button:hover { color: var(--red); }
   .flight-controls > div:first-child { display: none; }
   footer { padding: 10px 16px; gap: 10px; flex-wrap: wrap; justify-content: center; text-align: center; }
   footer button { width: 100%; }
+}
+@media (hover: none) and (pointer: coarse) and (max-width: 820px), (hover: none) and (pointer: coarse) and (max-height: 560px) {
+  .mobile-flight-controls { position: absolute; z-index: 6; left: max(10px, env(safe-area-inset-left)); right: max(10px, env(safe-area-inset-right)); bottom: max(16px, env(safe-area-inset-bottom)); display: flex; align-items: flex-end; justify-content: space-between; pointer-events: none; transition: opacity .18s ease, visibility .18s ease; }
+  .flight-controls { z-index: 7; left: 50%; bottom: max(16px, env(safe-area-inset-bottom)); width: auto; padding: 0; border: 0; background: none; backdrop-filter: none; }
+  .flight-controls > div { display: none; }
+  .flight-controls button { min-height: 34px; padding: 0 9px; border: 1px solid rgba(255,255,255,.13); border-radius: 4px; background: rgba(15,3,18,.7); font-size: 8px; backdrop-filter: blur(7px); }
+  .right-hud { width: 138px; }
+  .right-hud .controller-chip, .right-hud .motor-mixer { display: none; }
+  .hud-block { margin-bottom: 12px; }
+  .hud-block b { font-size: 23px; }
+}
+@media (hover: none) and (pointer: coarse) and (max-height: 560px) and (orientation: landscape) {
+  .flight-frame.is-fullscreen .flight-topbar { padding: 11px 14px; }
+  .flight-frame.is-fullscreen .flight-topbar .eyebrow { display: none; }
+  .flight-frame.is-fullscreen .flight-topbar h1 { font-size: 19px; }
+  .flight-frame.is-fullscreen .flight-status span { display: none; }
+  .flight-frame.is-fullscreen .flight-hud { top: 58px; }
+  .flight-frame.is-fullscreen .right-hud { right: 12px; }
+  .flight-frame.is-fullscreen .left-hud { left: 12px; }
+  .flight-frame.is-fullscreen .left-hud .hud-block:nth-child(n+3) { display: none; }
+  .flight-frame.is-fullscreen .flight-message { top: 58px; }
+  .flight-frame.is-fullscreen .race-hud { top: 55px; width: 235px; padding: 8px 12px; }
+  .flight-frame.is-fullscreen .race-hud b { font-size: 24px; }
+  .touch-stick { width: 96px; }
+  .touch-stick-pad { width: 92px; height: 92px; }
+  .touch-stick > small { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; } }
