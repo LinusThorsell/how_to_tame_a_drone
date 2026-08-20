@@ -62,7 +62,7 @@ function useFlightKeys(enabled) {
   return keys;
 }
 
-function Rotor({ position, motorIndex, motorsRef, accent = '#ff0096' }) {
+function Rotor({ position, motorIndex, motorsRef, accent = '#ff0096', ghost = false }) {
   const rotor = useRef();
   useFrame((_, delta) => {
     if (!rotor.current) return;
@@ -72,53 +72,89 @@ function Rotor({ position, motorIndex, motorsRef, accent = '#ff0096' }) {
   });
   return (
     <group position={position}>
-      <mesh castShadow>
+      <mesh castShadow={!ghost}>
         <cylinderGeometry args={[0.1, 0.13, 0.18, 16]} />
-        <meshStandardMaterial color="#3a123f" metalness={0.75} roughness={0.25} />
+        <meshStandardMaterial color={ghost ? accent : '#3a123f'} emissive={ghost ? accent : '#000000'} emissiveIntensity={ghost ? 0.65 : 0} metalness={0.75} roughness={0.25} transparent={ghost} opacity={ghost ? 0.34 : 1} depthWrite={!ghost} />
       </mesh>
       <group ref={rotor} position={[0, 0.11, 0]}>
         <mesh>
           <boxGeometry args={[1.45, 0.025, 0.08]} />
-          <meshStandardMaterial color={accent} emissive={accent} emissiveIntensity={0.65} transparent opacity={0.72} />
+          <meshStandardMaterial color={accent} emissive={accent} emissiveIntensity={0.65} transparent opacity={ghost ? 0.34 : 0.72} depthWrite={!ghost} />
         </mesh>
         <mesh rotation={[0, Math.PI / 2, 0]}>
           <boxGeometry args={[1.45, 0.02, 0.06]} />
-          <meshStandardMaterial color={accent} emissive={accent} emissiveIntensity={0.45} transparent opacity={0.45} />
+          <meshStandardMaterial color={accent} emissive={accent} emissiveIntensity={0.45} transparent opacity={ghost ? 0.24 : 0.45} depthWrite={!ghost} />
         </mesh>
       </group>
     </group>
   );
 }
 
-function Drone({ motorsRef }) {
+function Drone({ motorsRef, ghost = false, accent = '#ff0096' }) {
   return (
     <group scale={0.28}>
-      <mesh castShadow>
+      <mesh castShadow={!ghost}>
         <boxGeometry args={[1.15, 0.32, 1.45]} />
-        <meshStandardMaterial color="#3b1249" metalness={0.75} roughness={0.22} />
+        <meshStandardMaterial color={ghost ? accent : '#3b1249'} emissive={ghost ? accent : '#000000'} emissiveIntensity={ghost ? 0.72 : 0} metalness={0.75} roughness={0.22} transparent={ghost} opacity={ghost ? 0.3 : 1} depthWrite={!ghost} />
       </mesh>
-      <mesh position={[0, 0.16, 0.1]} castShadow>
+      <mesh position={[0, 0.16, 0.1]} castShadow={!ghost}>
         <boxGeometry args={[0.75, 0.17, 0.82]} />
-        <meshStandardMaterial color="#762277" emissive="#3c0b47" emissiveIntensity={0.45} metalness={0.6} roughness={0.2} />
+        <meshStandardMaterial color={ghost ? accent : '#762277'} emissive={ghost ? accent : '#3c0b47'} emissiveIntensity={ghost ? 0.9 : 0.45} metalness={0.6} roughness={0.2} transparent={ghost} opacity={ghost ? 0.42 : 1} depthWrite={!ghost} />
       </mesh>
-      <mesh rotation={[0, Math.PI / 4, 0]} castShadow>
+      <mesh rotation={[0, Math.PI / 4, 0]} castShadow={!ghost}>
         <boxGeometry args={[3.2, 0.12, 0.14]} />
-        <meshStandardMaterial color="#a7bdc7" metalness={0.75} roughness={0.2} />
+        <meshStandardMaterial color={ghost ? accent : '#a7bdc7'} emissive={ghost ? accent : '#000000'} emissiveIntensity={ghost ? 0.5 : 0} metalness={0.75} roughness={0.2} transparent={ghost} opacity={ghost ? 0.3 : 1} depthWrite={!ghost} />
       </mesh>
-      <mesh rotation={[0, -Math.PI / 4, 0]} castShadow>
+      <mesh rotation={[0, -Math.PI / 4, 0]} castShadow={!ghost}>
         <boxGeometry args={[3.2, 0.12, 0.14]} />
-        <meshStandardMaterial color="#a7bdc7" metalness={0.75} roughness={0.2} />
+        <meshStandardMaterial color={ghost ? accent : '#a7bdc7'} emissive={ghost ? accent : '#000000'} emissiveIntensity={ghost ? 0.5 : 0} metalness={0.75} roughness={0.2} transparent={ghost} opacity={ghost ? 0.3 : 1} depthWrite={!ghost} />
       </mesh>
-      <Rotor position={[-1.12, 0.07, -1.12]} motorIndex={2} motorsRef={motorsRef} />
-      <Rotor position={[1.12, 0.07, 1.12]} motorIndex={1} motorsRef={motorsRef} />
-      <Rotor position={[1.12, 0.07, -1.12]} motorIndex={3} motorsRef={motorsRef} accent="#9b51e0" />
-      <Rotor position={[-1.12, 0.07, 1.12]} motorIndex={0} motorsRef={motorsRef} accent="#9b51e0" />
+      <Rotor position={[-1.12, 0.07, -1.12]} motorIndex={2} motorsRef={motorsRef} accent={accent} ghost={ghost} />
+      <Rotor position={[1.12, 0.07, 1.12]} motorIndex={1} motorsRef={motorsRef} accent={accent} ghost={ghost} />
+      <Rotor position={[1.12, 0.07, -1.12]} motorIndex={3} motorsRef={motorsRef} accent={ghost ? accent : '#9b51e0'} ghost={ghost} />
+      <Rotor position={[-1.12, 0.07, 1.12]} motorIndex={0} motorsRef={motorsRef} accent={ghost ? accent : '#9b51e0'} ghost={ghost} />
       <mesh position={[0, -0.02, 0.78]}>
         <sphereGeometry args={[0.08, 12, 12]} />
-        <meshBasicMaterial color="#ff6b6b" toneMapped={false} />
+        <meshBasicMaterial color={ghost ? accent : '#ff6b6b'} transparent={ghost} opacity={ghost ? 0.75 : 1} toneMapped={false} depthWrite={!ghost} />
       </mesh>
     </group>
   );
+}
+
+const GHOST_COLORS = ['#36e5ff', '#ffd45e', '#8dff8a', '#b786ff', '#ff759d', '#57f2c7'];
+
+function colorForPlayer(playerId) {
+  let hash = 0;
+  for (let index = 0; index < playerId.length; index += 1) hash = (hash * 31 + playerId.charCodeAt(index)) | 0;
+  return GHOST_COLORS[Math.abs(hash) % GHOST_COLORS.length];
+}
+
+function GhostDrone({ playerId, posesRef }) {
+  const group = useRef();
+  const motors = useRef(createMotorThrusts());
+  const initialized = useRef(false);
+  const targetPosition = useMemo(() => new THREE.Vector3(), []);
+  const targetQuaternion = useMemo(() => new THREE.Quaternion(), []);
+  const color = useMemo(() => colorForPlayer(playerId), [playerId]);
+
+  useFrame((_, delta) => {
+    const pose = posesRef?.current.get(playerId);
+    if (!group.current || !pose) return;
+    targetPosition.fromArray(pose.p);
+    targetQuaternion.fromArray(pose.q);
+    if (!initialized.current) {
+      group.current.position.copy(targetPosition);
+      group.current.quaternion.copy(targetQuaternion);
+      group.current.visible = true;
+      initialized.current = true;
+      return;
+    }
+    const blend = 1 - Math.pow(0.0005, Math.min(delta, 0.05));
+    group.current.position.lerp(targetPosition, blend);
+    group.current.quaternion.slerp(targetQuaternion, blend);
+  });
+
+  return <group ref={group} visible={false}><Drone motorsRef={motors} ghost accent={color} /></group>;
 }
 
 function GateFrame({ width, height, bar, color, intensity, active, challenge }) {
@@ -271,7 +307,7 @@ function createFlightState(motors, gains) {
   };
 }
 
-function Simulator({ launched, mode = 'training', controller, gains, resetSignal, touchControlsRef, onTelemetry, onCheckpoint }) {
+function Simulator({ launched, mode = 'training', controller, gains, resetSignal, touchControlsRef, ghostIds = [], ghostPosesRef, onPose, onTelemetry, onCheckpoint }) {
   const gates = gatesForMode(mode);
   const challenge = mode === 'race';
   const { camera } = useThree();
@@ -280,6 +316,8 @@ function Simulator({ launched, mode = 'training', controller, gains, resetSignal
   const motorsVisual = useRef(createMotorThrusts());
   const flightState = useRef(createFlightState(motorsVisual.current, gains));
   const telemetryTime = useRef(0);
+  const poseTime = useRef(0);
+  const onPoseRef = useRef(onPose);
   const onTelemetryRef = useRef(onTelemetry);
   const onCheckpointRef = useRef(onCheckpoint);
   const controllerRef = useRef(controller);
@@ -303,6 +341,7 @@ function Simulator({ launched, mode = 'training', controller, gains, resetSignal
 
   onTelemetryRef.current = onTelemetry;
   onCheckpointRef.current = onCheckpoint;
+  onPoseRef.current = onPose;
   controllerRef.current = controller;
   fallbackRef.current = builtInController(gains);
 
@@ -440,6 +479,15 @@ function Simulator({ launched, mode = 'training', controller, gains, resetSignal
     cameraLook.set(position.x + Math.sin(yaw) * 5, position.y + 0.15, position.z + Math.cos(yaw) * 5);
     camera.lookAt(cameraLook);
 
+    poseTime.current += delta;
+    if (poseTime.current > 1 / 15) {
+      poseTime.current = 0;
+      onPoseRef.current?.({
+        p: [position.x, position.y, position.z],
+        q: [rotation.x, rotation.y, rotation.z, rotation.w]
+      });
+    }
+
     telemetryTime.current += delta;
     if (telemetryTime.current > 0.08) {
       telemetryTime.current = 0;
@@ -485,6 +533,7 @@ function Simulator({ launched, mode = 'training', controller, gains, resetSignal
         />
         <Drone motorsRef={motorsVisual} />
       </RigidBody>
+      {ghostIds.map((playerId) => <GhostDrone key={playerId} playerId={playerId} posesRef={ghostPosesRef} />)}
       {gates.map((position, index) => <Gate key={index} position={position} challenge={challenge} active={index === checkpoint} passed={index < checkpoint} />)}
       {challenge && <CourseLights gates={gates} checkpoint={checkpoint} />}
       <RangeObjects challenge={challenge} />

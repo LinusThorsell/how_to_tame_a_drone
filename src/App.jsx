@@ -34,6 +34,7 @@ import {
   TRAINING_GATES
 } from './flightCourse';
 import { COURSE_NAVIGATION, isViewUnlocked, resolveView } from './courseNavigation';
+import { createRaceMultiplayer, GHOST_STALE_MS } from './raceMultiplayer';
 import {
   buildGuidedController,
   gainsForGuidedStep,
@@ -1017,6 +1018,8 @@ function FullscreenIcon({ active }) {
 function FlightView({ mode, progress, updateProgress, navigate, toast }) {
   const flightFrameRef = useRef(null);
   const touchControlsRef = useRef({ forwardInput: 0, rightInput: 0, upInput: 0, yawInput: 0 });
+  const multiplayerClientRef = useRef(null);
+  const ghostPosesRef = useRef(new Map());
   const [launched, setLaunched] = useState(false);
   const [resetSignal, setResetSignal] = useState(0);
   const [telemetry, setTelemetry] = useState(() => initialFlightTelemetry(mode));
@@ -1025,6 +1028,9 @@ function FlightView({ mode, progress, updateProgress, navigate, toast }) {
   const [raceCountdown, setRaceCountdown] = useState(null);
   const [raceResult, setRaceResult] = useState(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [ghostIds, setGhostIds] = useState([]);
+  const [multiplayerStatus, setMultiplayerStatus] = useState('offline');
+  const [multiplayerPlayers, setMultiplayerPlayers] = useState(0);
   const ready = mode === 'race' ? progress.practicePassed : progress.tunePassed;
   const controllerWarning = !progress.codePassed || !progress.validated?.source;
   const hasFlightWarning = progress.tuneWarning || controllerWarning;
@@ -1032,12 +1038,61 @@ function FlightView({ mode, progress, updateProgress, navigate, toast }) {
   const checkpoint = telemetry.checkpoint;
   const countingDown = mode === 'race' && raceCountdown > 0;
   const flightActive = launched && !challengeReady && !raceResult && !countingDown;
+  const multiplayerEnabled = mode === 'race' && launched && !raceResult;
+  const removeGhost = useCallback((playerId) => {
+    if (!ghostPosesRef.current.delete(playerId)) return;
+    setGhostIds((current) => current.filter((id) => id !== playerId));
+  }, []);
+  const clearGhosts = useCallback(() => {
+    ghostPosesRef.current.clear();
+    setGhostIds([]);
+  }, []);
+  const receiveGhostPose = useCallback((playerId, pose) => {
+    const isNew = !ghostPosesRef.current.has(playerId);
+    ghostPosesRef.current.set(playerId, { ...pose, receivedAt: performance.now() });
+    if (isNew) setGhostIds((current) => [...current, playerId]);
+  }, []);
+  const publishMultiplayerPose = useCallback((pose) => {
+    multiplayerClientRef.current?.publishPose(pose);
+  }, []);
   const controller = useMemo(() => {
     const language = progress.validated?.language || progress.language;
     const source = progress.validated?.source || progress.code?.[language];
     if (!source) return null;
     try { return compileController(language, source); } catch { return null; }
   }, [progress.code, progress.language, progress.validated]);
+  useEffect(() => {
+    if (!multiplayerEnabled) {
+      multiplayerClientRef.current = null;
+      setMultiplayerStatus('offline');
+      setMultiplayerPlayers(0);
+      clearGhosts();
+      return undefined;
+    }
+    const client = createRaceMultiplayer({
+      onPose: receiveGhostPose,
+      onLeave: removeGhost,
+      onPresence: setMultiplayerPlayers,
+      onStatus: (nextStatus) => {
+        setMultiplayerStatus(nextStatus);
+        if (nextStatus === 'offline') setMultiplayerPlayers(0);
+      }
+    });
+    multiplayerClientRef.current = client;
+    client.connect();
+    const staleTimer = window.setInterval(() => {
+      const oldestAllowed = performance.now() - GHOST_STALE_MS;
+      for (const [playerId, pose] of ghostPosesRef.current) {
+        if (pose.receivedAt < oldestAllowed) removeGhost(playerId);
+      }
+    }, 500);
+    return () => {
+      window.clearInterval(staleTimer);
+      multiplayerClientRef.current = null;
+      client.close();
+      clearGhosts();
+    };
+  }, [clearGhosts, multiplayerEnabled, receiveGhostPose, removeGhost]);
   useEffect(() => {
     if (!countingDown) return undefined;
     const timer = window.setTimeout(() => setRaceCountdown((value) => value - 1), 1000);
@@ -1163,16 +1218,17 @@ function FlightView({ mode, progress, updateProgress, navigate, toast }) {
 
   return (
     <section className="view active fly-view" id={`${mode === 'race' ? 'race' : 'practice'}-view`} aria-labelledby={`${mode === 'race' ? 'race' : 'practice'}-title`}>
-      <div ref={flightFrameRef} className={`flight-frame ${mode === 'race' ? 'race-mode' : ''} ${isFullscreen ? 'is-fullscreen' : ''}`}>
+      <div ref={flightFrameRef} className={`flight-frame ${mode === 'race' ? 'race-mode' : ''} ${isFullscreen ? 'is-fullscreen' : ''}`} data-ghost-count={ghostIds.length}>
         <div className="flight-canvas-slot">
           <Suspense fallback={<div className="three-loading"><span>Loading Three.js flight world…</span></div>}>
-            <FlightScene mode={mode} launched={flightActive} controller={controller} gains={progress.gains} resetSignal={resetSignal} touchControlsRef={touchControlsRef} onTelemetry={onTelemetry} onCheckpoint={onCheckpoint} />
+            <FlightScene mode={mode} launched={flightActive} controller={controller} gains={progress.gains} resetSignal={resetSignal} touchControlsRef={touchControlsRef} ghostIds={ghostIds} ghostPosesRef={ghostPosesRef} onPose={mode === 'race' ? publishMultiplayerPose : undefined} onTelemetry={onTelemetry} onCheckpoint={onCheckpoint} />
           </Suspense>
         </div>
         <div className="flight-topbar"><div><p className="eyebrow"><span>Module {mode === 'race' ? '05' : '04'}</span> {mode === 'race' ? 'Timed championship course' : 'Practice range · Rapier 6-DOF flight'}</p><h1 id={`${mode === 'race' ? 'race' : 'practice'}-title`}>{mode === 'race' ? <>Neon Gauntlet <em>Race</em></> : <>Practice Range <em>Alpha</em></>}</h1></div><div className="flight-system-actions"><div className={`flight-status ${flightActive ? 'live' : ''}`}><span><i /> FLIGHT SYSTEMS</span><b>{status}</b></div><button className="fullscreen-btn" type="button" onClick={toggleFullscreen} aria-pressed={isFullscreen} title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}><FullscreenIcon active={isFullscreen} /><span>{isFullscreen ? 'Exit' : 'Fullscreen'}</span></button></div></div>
         <div className="flight-hud left-hud"><div className="hud-block"><span>ALTITUDE</span><b>{telemetry.altitude.toFixed(1)}</b><small>METERS</small></div><div className="hud-block"><span>AIRSPEED</span><b>{telemetry.speed.toFixed(1)}</b><small>M / S</small></div><div className="hud-block"><span>ATTITUDE</span><b>{Math.round(telemetry.tilt)}°</b><small>{Math.round(telemetry.commandedTilt)}° COMMAND</small></div><div className="hud-block"><span>HEADING</span><b>{String(Math.round(telemetry.heading)).padStart(3, '0')}</b><small>DEGREES</small></div></div>
         <div className="flight-hud right-hud">
           <div className="battery"><span>BATTERY</span><b>{Math.round(telemetry.battery)}%</b><i><em style={{ width: `${telemetry.battery}%` }} /></i></div>
+          {mode === 'race' && <div className={`controller-chip multiplayer-chip ${multiplayerStatus}`} aria-live="polite"><span>GHOST NETWORK</span><b><i />{multiplayerStatus === 'connected' ? `${multiplayerPlayers} PILOT${multiplayerPlayers === 1 ? '' : 'S'} LIVE` : multiplayerStatus === 'connecting' ? 'CONNECTING…' : 'OFFLINE · SOLO OK'}</b></div>}
           <div className="controller-chip"><span>USER CONTROLLER · 4 AXES</span><b>{telemetry.controllerFault ? 'FALLBACK ACTIVE' : progress.validated ? `${progress.validated.language.toUpperCase()} PID` : `${progress.language.toUpperCase()} · UNVALIDATED`}</b></div>
           <div className="motor-mixer"><span>MOTOR THRUST · %</span><div>{telemetry.motors.map((motor, index) => <b key={index}>M{index + 1}<em>{motor}</em></b>)}</div></div>
           <div className="controller-chip render-chip"><span>PHYSICS / RENDERER</span><b>RAPIER · THREE.JS</b></div>
@@ -1195,7 +1251,7 @@ function FlightView({ mode, progress, updateProgress, navigate, toast }) {
               <span className="launch-icon race-launch-icon" aria-hidden="true">⚑</span>
               <p className="eyebrow"><span>Race unlocked</span> Neon Gauntlet</p>
               <h2>Thread every gate. Beat the clock.</h2>
-              <p>The paired floor lights mark the racing line. Twelve narrow, collidable gates demand sharper turns and altitude control than Practice.</p>
+              <p>The paired floor lights mark the racing line. Other active pilots appear as translucent ghosts—your clock and flight remain completely local.</p>
               <div className="race-dialog-stats race-start-stats"><span><b>{RACE_GATES.length}</b> gates</span><span><b>{formatRaceTime(RACE_PAR_SECONDS)}</b> par</span><span><b>{progress.raceBest ? formatRaceTime(progress.raceBest) : '—'}</b> personal best</span></div>
               <button className="primary-btn full" id="launch-race" onClick={startRace}>Start race <span>→</span></button>
             </div>

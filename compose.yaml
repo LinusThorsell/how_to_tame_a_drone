@@ -8,13 +8,18 @@ services:
     container_name: rotor-lab
     ports:
       - "${ROTOR_LAB_PORT:-8080}:8080"
+    environment:
+      MULTIPLAYER_PROXY_TARGET: http://multiplayer:3001
+    depends_on:
+      multiplayer:
+        condition: service_healthy
     volumes:
       - type: bind
         source: .
         target: /app
         read_only: true
       - type: volume
-        source: rotor-lab-node-modules
+        source: rotor-lab-node-modules-v2
         target: /app/node_modules
     restart: unless-stopped
     read_only: true
@@ -32,5 +37,28 @@ services:
       retries: 3
       start_period: 5s
 
+  multiplayer:
+    build:
+      context: ./multiplayer
+      dockerfile: Dockerfile
+    image: rotor-lab-multiplayer:local
+    container_name: rotor-lab-multiplayer
+    ports:
+      - "${ROTOR_LAB_MULTIPLAYER_PORT:-3001}:3001"
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=8m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3001/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 3s
+
 volumes:
-  rotor-lab-node-modules:
+  rotor-lab-node-modules-v2:

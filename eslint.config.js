@@ -28,5 +28,9 @@ export default [
   {
     files: ['src/components/FlightScene.jsx', 'src/components/LearnFlightDemo.jsx'],
     rules: { 'react/no-unknown-property': 'off' }
+  },
+  {
+    files: ['vite.config.js', 'multiplayer/**/*.js'],
+    languageOptions: { globals: { ...globals.node } }
   }
 ];
