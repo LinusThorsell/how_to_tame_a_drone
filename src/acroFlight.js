@@ -3,14 +3,18 @@ import { clamp, rad } from './physics.js';
 export const ACRO_RATE_PROFILE = Object.freeze({
   roll: Object.freeze({ expo: 0.88, max: 600 }),
   pitch: Object.freeze({ expo: 0.88, max: 600 }),
-  yaw: Object.freeze({ expo: 0.65, max: 600 })
+  yaw: Object.freeze({ expo: 0.55, max: 1000 })
 });
+
+export const ACRO_YAW_AERO_DAMPING = 0.045;
 
 const RATE_PID = Object.freeze({
   roll: Object.freeze({ kp: 0.42, ki: 0.015, kd: 0.002 }),
   pitch: Object.freeze({ kp: 0.42, ki: 0.015, kd: 0.002 }),
   yaw: Object.freeze({ kp: 0.55, ki: 0.02, kd: 0.004 })
 });
+
+const RATE_OUTPUT_LIMIT = Object.freeze({ roll: 2.5, pitch: 2.5, yaw: 3.2 });
 
 export function acroThrottleFromStick(stick) {
   return (clamp(Number(stick) || 0, -1, 1) + 1) / 2;
@@ -43,6 +47,7 @@ export function stepAcroRateController({ axis = 'roll', stick = 0, actualRate = 
   const targetRate = acroRateFromStick(stick, axis);
   const error = targetRate - safeRate;
   const gains = RATE_PID[axis] || RATE_PID.roll;
+  const outputLimit = RATE_OUTPUT_LIMIT[axis] || RATE_OUTPUT_LIMIT.roll;
 
   // Acro rate loops derive D from gyro movement rather than error movement. This
   // avoids a derivative kick when the pilot makes a sharp stick command.
@@ -56,8 +61,8 @@ export function stepAcroRateController({ axis = 'roll', stick = 0, actualRate = 
     targetRate,
     output: clamp(
       gains.kp * error + gains.ki * memory.integral - gains.kd * gyroDerivative,
-      -2.5,
-      2.5
+      -outputLimit,
+      outputLimit
     )
   };
 }

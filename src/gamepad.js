@@ -8,6 +8,17 @@ export const GAMEPAD_BUTTONS = Object.freeze({
   reset: 9
 });
 
+const STANDARD_STICK_AXES = Object.freeze({ leftX: 0, leftY: 1, rightX: 2, rightY: 3 });
+const rawStickLayoutCache = new WeakMap();
+
+function axesRestAtExtreme(axes, first, second) {
+  const firstValue = Number(axes[first]) || 0;
+  const secondValue = Number(axes[second]) || 0;
+  return Math.abs(firstValue) > 0.75
+    && Math.abs(secondValue) > 0.75
+    && Math.sign(firstValue) === Math.sign(secondValue);
+}
+
 function availableGamepads(gamepads) {
   if (gamepads) return Array.from(gamepads).filter(Boolean);
   if (typeof navigator === 'undefined' || typeof navigator.getGamepads !== 'function') return [];
@@ -19,6 +30,28 @@ export function findFlightGamepad(gamepads) {
     gamepad.connected !== false && gamepad.axes?.length >= 4
   ));
   return compatible.find((gamepad) => gamepad.mapping === 'standard') || compatible[0] || null;
+}
+
+export function resolveGamepadStickAxes(gamepad) {
+  if (!gamepad || gamepad.mapping === 'standard' || gamepad.axes?.length < 6) {
+    return STANDARD_STICK_AXES;
+  }
+  const cached = rawStickLayoutCache.get(gamepad);
+  if (cached) return cached;
+
+  const axes = gamepad.axes;
+  let layout = STANDARD_STICK_AXES;
+  // Raw Xbox-style Bluetooth/DInput reports commonly expose axes as
+  // LX, LY, LT, RX, RY, RT. Detect the two resting trigger axes and skip them.
+  if (axesRestAtExtreme(axes, 2, 5)) {
+    layout = { leftX: 0, leftY: 1, rightX: 3, rightY: 4 };
+  } else if (axesRestAtExtreme(axes, 3, 4)) {
+    layout = { leftX: 0, leftY: 1, rightX: 2, rightY: 5 };
+  } else if (/xbox|x-box|xinput|8bitdo/i.test(String(gamepad.id || ''))) {
+    layout = { leftX: 0, leftY: 1, rightX: 3, rightY: 4 };
+  }
+  rawStickLayoutCache.set(gamepad, layout);
+  return layout;
 }
 
 export function applyRadialDeadzone(x, y, deadzone = GAMEPAD_DEADZONE) {
@@ -41,8 +74,9 @@ export function applyAxisDeadzone(value, deadzone = GAMEPAD_AXIS_DEADZONE) {
 export function readGamepadInputs(gamepads) {
   const gamepad = findFlightGamepad(gamepads);
   if (!gamepad) return { forwardInput: 0, rightInput: 0, upInput: 0, yawInput: 0 };
-  const radialLeft = applyRadialDeadzone(gamepad.axes[0], gamepad.axes[1]);
-  const radialRight = applyRadialDeadzone(gamepad.axes[2], gamepad.axes[3]);
+  const axes = resolveGamepadStickAxes(gamepad);
+  const radialLeft = applyRadialDeadzone(gamepad.axes[axes.leftX], gamepad.axes[axes.leftY]);
+  const radialRight = applyRadialDeadzone(gamepad.axes[axes.rightX], gamepad.axes[axes.rightY]);
   const left = { x: applyAxisDeadzone(radialLeft.x), y: applyAxisDeadzone(radialLeft.y) };
   const right = { x: applyAxisDeadzone(radialRight.x), y: applyAxisDeadzone(radialRight.y) };
   return {

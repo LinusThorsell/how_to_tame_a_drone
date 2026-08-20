@@ -66,11 +66,11 @@ export function stepMotorModel({
   return motors.reduce((sum, thrust) => sum + thrust, 0);
 }
 
-export function motorBodyTorque(motors, yawRate = 0) {
+export function motorBodyTorque(motors, yawRate = 0, yawDamping = YAW_AERO_DAMPING) {
   const [frontRight, frontLeft, rearRight, rearLeft] = motors;
   return {
     x: ARM_LENGTH * (-frontRight - frontLeft + rearRight + rearLeft),
-    y: YAW_TORQUE_COEFFICIENT * (-frontRight + frontLeft + rearRight - rearLeft) - YAW_AERO_DAMPING * yawRate,
+    y: YAW_TORQUE_COEFFICIENT * (-frontRight + frontLeft + rearRight - rearLeft) - yawDamping * yawRate,
     z: ARM_LENGTH * (-frontRight + frontLeft - rearRight + rearLeft)
   };
 }

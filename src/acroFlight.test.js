@@ -58,6 +58,13 @@ test('acro rate PID commands the requested direction and brakes at centered stic
   assert.ok(brake.output < 0);
 });
 
+test('acro yaw has a higher rate target and control ceiling than roll', () => {
+  const yaw = stepAcroRateController({ axis: 'yaw', stick: 1, actualRate: 0, delta: 1 / 60, memory: createAcroRateMemory() });
+  const roll = stepAcroRateController({ axis: 'roll', stick: 1, actualRate: 0, delta: 1 / 60, memory: createAcroRateMemory() });
+  assert.ok(yaw.targetRate > roll.targetRate);
+  assert.ok(yaw.output > roll.output);
+});
+
 test('large acro commands reset I-term windup', () => {
   const memory = createAcroRateMemory();
   memory.integral = 2;

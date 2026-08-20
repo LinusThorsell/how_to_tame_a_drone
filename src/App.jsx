@@ -1325,8 +1325,8 @@ function FlightView({ mode, progress, updateProgress, navigate, toast }) {
         <div className="flight-hud right-hud">
           <div className="battery"><span>BATTERY</span><b>{Math.round(telemetry.battery)}%</b><i><em style={{ width: `${telemetry.battery}%` }} /></i></div>
           {mode === 'race' && <div className={`controller-chip multiplayer-chip ${multiplayerStatus}`} aria-live="polite"><span>GHOST NETWORK</span><b><i />{multiplayerStatus === 'connected' ? `${multiplayerPlayers} PILOT${multiplayerPlayers === 1 ? '' : 'S'} LIVE` : multiplayerStatus === 'connecting' ? 'CONNECTING…' : 'OFFLINE · SOLO OK'}</b></div>}
-          {gamepad && <div className="controller-chip gamepad-chip" aria-live="polite"><span>GAMEPAD · CONNECTED</span><b>{gamepad.label}</b><small>{gamepad.standard ? 'RS PITCH/ROLL · LS THR/YAW · Y/△ MODE' : '4-AXIS FALLBACK · STICKS ONLY'}</small></div>}
-          <div className="controller-chip"><span>{acroMode ? 'GYRO RATE CONTROLLER' : 'USER CONTROLLER · 4 AXES'}</span><b>{acroMode ? 'ACRO PID · 600°/S' : telemetry.controllerFault ? 'FALLBACK ACTIVE' : progress.validated ? `${progress.validated.language.toUpperCase()} PID` : `${progress.language.toUpperCase()} · UNVALIDATED`}</b></div>
+          {gamepad && <div className="controller-chip gamepad-chip" aria-live="polite"><span>GAMEPAD · CONNECTED</span><b>{gamepad.label}</b><small>{gamepad.standard ? 'RS PITCH/ROLL · LS THR/YAW · Y/△ MODE' : 'AUTO-MAPPED AXES · STICKS ONLY'}</small></div>}
+          <div className="controller-chip"><span>{acroMode ? 'GYRO RATE CONTROLLER' : 'USER CONTROLLER · 4 AXES'}</span><b>{acroMode ? 'ACRO · YAW 1000°/S' : telemetry.controllerFault ? 'FALLBACK ACTIVE' : progress.validated ? `${progress.validated.language.toUpperCase()} PID` : `${progress.language.toUpperCase()} · UNVALIDATED`}</b></div>
           <div className="motor-mixer"><span>MOTOR THRUST · %</span><div>{telemetry.motors.map((motor, index) => <b key={index}>M{index + 1}<em>{motor}</em></b>)}</div></div>
           <div className="controller-chip render-chip"><span>PHYSICS / RENDERER</span><b>RAPIER · THREE.JS</b></div>
         </div>
@@ -1341,7 +1341,7 @@ function FlightView({ mode, progress, updateProgress, navigate, toast }) {
           <div className="flight-message"><span>{checkpoint >= TRAINING_GATES.length ? 'COURSE COMPLETE' : `CHECKPOINT 0${checkpoint + 1}`}</span><b>{checkpoint >= TRAINING_GATES.length ? 'Control loop proven in flight' : 'Fly through the illuminated gate'}</b><small>{checkpoint >= TRAINING_GATES.length ? 'All checkpoints cleared' : `${telemetry.distance.toFixed(0)} m to target`}</small></div>
         )}
         <MobileFlightControls enabled={flightActive} controlsRef={touchControlsRef} acroMode={acroMode} />
-        <div className="flight-controls"><div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>{acroMode ? 'Body rates · 600°/s' : 'Tilt ·32° / speed'}</span></div><div><kbd>↑</kbd><kbd>↓</kbd><span>{acroMode ? 'Throttle' : 'Altitude'}</span></div><div><kbd>←</kbd><kbd>→</kbd><span>Yaw</span></div>{gamepad && <div className="gamepad-controls"><kbd>LS</kbd><kbd>RS</kbd><span>Gamepad</span></div>}<button onClick={resetFlight}>Reset {mode === 'race' ? 'race' : 'flight'}</button></div>
+        <div className="flight-controls"><div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>{acroMode ? 'R/P 600 · YAW 1000°/s' : 'Tilt ·32° / speed'}</span></div><div><kbd>↑</kbd><kbd>↓</kbd><span>{acroMode ? 'Throttle' : 'Altitude'}</span></div><div><kbd>←</kbd><kbd>→</kbd><span>Yaw</span></div>{gamepad && <div className="gamepad-controls"><kbd>LS</kbd><kbd>RS</kbd><span>Gamepad</span></div>}<button onClick={resetFlight}>Reset {mode === 'race' ? 'race' : 'flight'}</button></div>
         {mode === 'race' ? (
           <div className={`launch-overlay ${launched ? 'hidden' : ''}`}>
             <div className="launch-card race-start-card">

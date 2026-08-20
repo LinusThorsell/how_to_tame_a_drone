@@ -19,6 +19,7 @@ import {
 import {
   acroCollectiveFromThrottle,
   acroThrottleFromStick,
+  ACRO_YAW_AERO_DAMPING,
   createAcroRateMemory,
   stepAcroRateController
 } from '../acroFlight';
@@ -489,7 +490,11 @@ function Simulator({ launched, mode = 'training', flightMode = 'angle', cameraMo
         ? acroCollectiveFromThrottle(flight.throttle, ACRO_HOVER_THRUST_FRACTION) * MAX_MOTOR_THRUST * 4
         : undefined
     });
-    const torque = motorBodyTorque(flight.motors, bodyAngularVelocity.y);
+    const torque = motorBodyTorque(
+      flight.motors,
+      bodyAngularVelocity.y,
+      acro ? ACRO_YAW_AERO_DAMPING : undefined
+    );
     bodyTorque.set(
       torque.x,
       torque.y + AIRFRAME_TRIM_TORQUE.yaw,
