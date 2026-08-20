@@ -36,6 +36,12 @@ import {
 import { COURSE_NAVIGATION, isViewUnlocked, resolveView } from './courseNavigation';
 import { createRaceMultiplayer, GHOST_STALE_MS } from './raceMultiplayer';
 import {
+  findFlightGamepad,
+  GAMEPAD_BUTTONS,
+  gamepadButtonPressed,
+  gamepadLabel
+} from './gamepad';
+import {
   buildGuidedController,
   gainsForGuidedStep,
   GUIDED_CONTROLLER_GAINS,
@@ -83,6 +89,9 @@ function initialFlightTelemetry(mode = 'training') {
     speed: 0,
     tilt: 0,
     commandedTilt: 0,
+    bodyRate: 0,
+    commandedRate: 0,
+    throttle: 50,
     heading: 0,
     battery: 100,
     elapsed: 0,
@@ -989,7 +998,7 @@ function TouchJoystick({ label, hint, enabled, onChange }) {
   );
 }
 
-function MobileFlightControls({ enabled, controlsRef }) {
+function MobileFlightControls({ enabled, controlsRef, acroMode = false }) {
   const updateLeft = useCallback(({ x, y }) => {
     controlsRef.current.yawInput = -x;
     controlsRef.current.upInput = y;
@@ -1001,10 +1010,52 @@ function MobileFlightControls({ enabled, controlsRef }) {
 
   return (
     <div className={`mobile-flight-controls ${enabled ? '' : 'disabled'}`} aria-label="Touch flight controls">
-      <TouchJoystick label="ALT / YAW" hint="up · turn" enabled={enabled} onChange={updateLeft} />
-      <TouchJoystick label="FLIGHT" hint="forward · side" enabled={enabled} onChange={updateRight} />
+      <TouchJoystick label={acroMode ? 'THR / YAW' : 'ALT / YAW'} hint={acroMode ? 'throttle · turn' : 'up · turn'} enabled={enabled} onChange={updateLeft} />
+      <TouchJoystick label={acroMode ? 'RATE' : 'FLIGHT'} hint={acroMode ? 'flip · roll' : 'forward · side'} enabled={enabled} onChange={updateRight} />
     </div>
   );
+}
+
+function useFlightGamepadActions({ onPrimary, onFlightMode, onReset }) {
+  const actionsRef = useRef({ onPrimary, onFlightMode, onReset });
+  const [connectedGamepad, setConnectedGamepad] = useState(null);
+  actionsRef.current = { onPrimary, onFlightMode, onReset };
+
+  useEffect(() => {
+    let animationFrame;
+    let connectedKey = '';
+    let previousButtons = { primary: false, flightMode: false, reset: false };
+    const poll = () => {
+      const gamepad = findFlightGamepad();
+      const nextKey = gamepad ? `${gamepad.index}:${gamepad.id}:${gamepad.mapping}` : '';
+      if (nextKey !== connectedKey) {
+        connectedKey = nextKey;
+        setConnectedGamepad(gamepad ? {
+          index: gamepad.index,
+          label: gamepadLabel(gamepad),
+          standard: gamepad.mapping === 'standard'
+        } : null);
+        previousButtons = { primary: false, flightMode: false, reset: false };
+      }
+
+      if (gamepad?.mapping === 'standard') {
+        const nextButtons = {
+          primary: gamepadButtonPressed(gamepad, GAMEPAD_BUTTONS.primary),
+          flightMode: gamepadButtonPressed(gamepad, GAMEPAD_BUTTONS.flightMode),
+          reset: gamepadButtonPressed(gamepad, GAMEPAD_BUTTONS.reset)
+        };
+        if (nextButtons.primary && !previousButtons.primary) actionsRef.current.onPrimary?.();
+        if (nextButtons.flightMode && !previousButtons.flightMode) actionsRef.current.onFlightMode?.();
+        if (nextButtons.reset && !previousButtons.reset) actionsRef.current.onReset?.();
+        previousButtons = nextButtons;
+      }
+      animationFrame = window.requestAnimationFrame(poll);
+    };
+    animationFrame = window.requestAnimationFrame(poll);
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, []);
+
+  return connectedGamepad;
 }
 
 function FullscreenIcon({ active }) {
@@ -1012,6 +1063,21 @@ function FullscreenIcon({ active }) {
     <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 3v5H3M12 3v5h5M8 17v-5H3M12 17v-5h5" /></svg>
   ) : (
     <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 3H3v5M12 3h5v5M8 17H3v-5M12 17h5v-5" /></svg>
+  );
+}
+
+function CameraModeToggle({ fpvMode, onToggle, launch = false }) {
+  if (launch) {
+    return (
+      <button className={`launch-mode-toggle camera-launch-toggle ${fpvMode ? 'fpv' : ''}`} type="button" onClick={onToggle} aria-pressed={fpvMode}>
+        <span>Camera</span><b>{fpvMode ? 'FPV' : 'CHASE'}</b><small>{fpvMode ? 'Nose camera · full aircraft attitude' : 'Stabilized follow camera'}</small><em>Switch →</em>
+      </button>
+    );
+  }
+  return (
+    <button className={`flight-mode-btn camera-mode-btn ${fpvMode ? 'fpv' : ''}`} type="button" onClick={onToggle} aria-pressed={fpvMode} title={fpvMode ? 'Switch to stabilized chase camera' : 'Switch to nose-mounted FPV camera'}>
+      <span>Camera</span><b>{fpvMode ? 'FPV' : 'CHASE'}</b>
+    </button>
   );
 }
 
@@ -1028,6 +1094,8 @@ function FlightView({ mode, progress, updateProgress, navigate, toast }) {
   const [raceCountdown, setRaceCountdown] = useState(null);
   const [raceResult, setRaceResult] = useState(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [flightMode, setFlightMode] = useState('angle');
+  const [fpvMode, setFpvMode] = useState(false);
   const [ghostIds, setGhostIds] = useState([]);
   const [multiplayerStatus, setMultiplayerStatus] = useState('offline');
   const [multiplayerPlayers, setMultiplayerPlayers] = useState(0);
@@ -1039,6 +1107,7 @@ function FlightView({ mode, progress, updateProgress, navigate, toast }) {
   const countingDown = mode === 'race' && raceCountdown > 0;
   const flightActive = launched && !challengeReady && !raceResult && !countingDown;
   const multiplayerEnabled = mode === 'race' && launched && !raceResult;
+  const acroMode = flightMode === 'acro';
   const removeGhost = useCallback((playerId) => {
     if (!ghostPosesRef.current.delete(playerId)) return;
     setGhostIds((current) => current.filter((id) => id !== playerId));
@@ -1211,6 +1280,33 @@ function FlightView({ mode, progress, updateProgress, navigate, toast }) {
       toast('Fullscreen could not be opened');
     }
   };
+  const toggleFlightMode = () => {
+    const nextMode = acroMode ? 'angle' : 'acro';
+    setFlightMode(nextMode);
+    toast(nextMode === 'acro'
+      ? 'Acro enabled — sticks command rotation rate; throttle is direct'
+      : 'Angle mode enabled — self-level and altitude hold restored');
+  };
+  const toggleCameraMode = () => {
+    const nextFpvMode = !fpvMode;
+    setFpvMode(nextFpvMode);
+    toast(nextFpvMode
+      ? 'FPV camera enabled — view follows the aircraft attitude'
+      : 'Chase camera enabled — stabilized follow view restored');
+  };
+  const gamepad = useFlightGamepadActions({
+    onPrimary: () => {
+      if (warningOpen) arm();
+      else if (raceResult) restartRace();
+      else if (challengeReady) navigate('race');
+      else if (!launched) {
+        if (mode === 'race') startRace();
+        else launch();
+      }
+    },
+    onFlightMode: toggleFlightMode,
+    onReset: () => { if (launched) resetFlight(); }
+  });
   const status = countingDown ? 'COUNTDOWN' : flightActive ? (mode === 'race' ? 'RACING' : 'ACTIVE') : launched ? 'PAUSED' : 'STANDBY';
   const bestTime = raceResult
     ? Math.min(progress.raceBest ?? Infinity, raceResult.time)
@@ -1221,15 +1317,16 @@ function FlightView({ mode, progress, updateProgress, navigate, toast }) {
       <div ref={flightFrameRef} className={`flight-frame ${mode === 'race' ? 'race-mode' : ''} ${isFullscreen ? 'is-fullscreen' : ''}`} data-ghost-count={ghostIds.length}>
         <div className="flight-canvas-slot">
           <Suspense fallback={<div className="three-loading"><span>Loading Three.js flight world…</span></div>}>
-            <FlightScene mode={mode} launched={flightActive} controller={controller} gains={progress.gains} resetSignal={resetSignal} touchControlsRef={touchControlsRef} ghostIds={ghostIds} ghostPosesRef={ghostPosesRef} onPose={mode === 'race' ? publishMultiplayerPose : undefined} onTelemetry={onTelemetry} onCheckpoint={onCheckpoint} />
+            <FlightScene mode={mode} flightMode={flightMode} cameraMode={fpvMode ? 'fpv' : 'chase'} launched={flightActive} controller={controller} gains={progress.gains} resetSignal={resetSignal} touchControlsRef={touchControlsRef} ghostIds={ghostIds} ghostPosesRef={ghostPosesRef} onPose={mode === 'race' ? publishMultiplayerPose : undefined} onTelemetry={onTelemetry} onCheckpoint={onCheckpoint} />
           </Suspense>
         </div>
-        <div className="flight-topbar"><div><p className="eyebrow"><span>Module {mode === 'race' ? '05' : '04'}</span> {mode === 'race' ? 'Timed championship course' : 'Practice range · Rapier 6-DOF flight'}</p><h1 id={`${mode === 'race' ? 'race' : 'practice'}-title`}>{mode === 'race' ? <>Neon Gauntlet <em>Race</em></> : <>Practice Range <em>Alpha</em></>}</h1></div><div className="flight-system-actions"><div className={`flight-status ${flightActive ? 'live' : ''}`}><span><i /> FLIGHT SYSTEMS</span><b>{status}</b></div><button className="fullscreen-btn" type="button" onClick={toggleFullscreen} aria-pressed={isFullscreen} title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}><FullscreenIcon active={isFullscreen} /><span>{isFullscreen ? 'Exit' : 'Fullscreen'}</span></button></div></div>
-        <div className="flight-hud left-hud"><div className="hud-block"><span>ALTITUDE</span><b>{telemetry.altitude.toFixed(1)}</b><small>METERS</small></div><div className="hud-block"><span>AIRSPEED</span><b>{telemetry.speed.toFixed(1)}</b><small>M / S</small></div><div className="hud-block"><span>ATTITUDE</span><b>{Math.round(telemetry.tilt)}°</b><small>{Math.round(telemetry.commandedTilt)}° COMMAND</small></div><div className="hud-block"><span>HEADING</span><b>{String(Math.round(telemetry.heading)).padStart(3, '0')}</b><small>DEGREES</small></div></div>
+        <div className="flight-topbar"><div><p className="eyebrow"><span>Module {mode === 'race' ? '05' : '04'}</span> {mode === 'race' ? 'Timed championship course' : 'Practice range · Rapier 6-DOF flight'}</p><h1 id={`${mode === 'race' ? 'race' : 'practice'}-title`}>{mode === 'race' ? <>Neon Gauntlet <em>Race</em></> : <>Practice Range <em>Alpha</em></>}</h1></div><div className="flight-system-actions"><div className={`flight-status ${flightActive ? 'live' : ''}`}><span><i /> FLIGHT SYSTEMS</span><b>{status}</b></div><button className={`flight-mode-btn ${acroMode ? 'acro' : ''}`} type="button" onClick={toggleFlightMode} aria-pressed={acroMode} title={acroMode ? 'Switch to self-leveling Angle mode' : 'Switch to Acro rate mode'}><span>Flight mode</span><b>{acroMode ? 'ACRO' : 'ANGLE'}</b></button><CameraModeToggle fpvMode={fpvMode} onToggle={toggleCameraMode} /><button className="fullscreen-btn" type="button" onClick={toggleFullscreen} aria-pressed={isFullscreen} title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}><FullscreenIcon active={isFullscreen} /><span>{isFullscreen ? 'Exit' : 'Fullscreen'}</span></button></div></div>
+        <div className="flight-hud left-hud"><div className="hud-block"><span>ALTITUDE</span><b>{telemetry.altitude.toFixed(1)}</b><small>{acroMode ? `METERS · THROTTLE ${Math.round(telemetry.throttle)}%` : 'METERS'}</small></div><div className="hud-block"><span>AIRSPEED</span><b>{telemetry.speed.toFixed(1)}</b><small>M / S</small></div><div className="hud-block"><span>{acroMode ? 'BODY RATE' : 'ATTITUDE'}</span><b>{Math.round(acroMode ? telemetry.bodyRate : telemetry.tilt)}°{acroMode ? '/S' : ''}</b><small>{Math.round(acroMode ? telemetry.commandedRate : telemetry.commandedTilt)}°{acroMode ? '/S' : ''} COMMAND</small></div><div className="hud-block"><span>HEADING</span><b>{String(Math.round(telemetry.heading)).padStart(3, '0')}</b><small>DEGREES</small></div></div>
         <div className="flight-hud right-hud">
           <div className="battery"><span>BATTERY</span><b>{Math.round(telemetry.battery)}%</b><i><em style={{ width: `${telemetry.battery}%` }} /></i></div>
           {mode === 'race' && <div className={`controller-chip multiplayer-chip ${multiplayerStatus}`} aria-live="polite"><span>GHOST NETWORK</span><b><i />{multiplayerStatus === 'connected' ? `${multiplayerPlayers} PILOT${multiplayerPlayers === 1 ? '' : 'S'} LIVE` : multiplayerStatus === 'connecting' ? 'CONNECTING…' : 'OFFLINE · SOLO OK'}</b></div>}
-          <div className="controller-chip"><span>USER CONTROLLER · 4 AXES</span><b>{telemetry.controllerFault ? 'FALLBACK ACTIVE' : progress.validated ? `${progress.validated.language.toUpperCase()} PID` : `${progress.language.toUpperCase()} · UNVALIDATED`}</b></div>
+          {gamepad && <div className="controller-chip gamepad-chip" aria-live="polite"><span>GAMEPAD · CONNECTED</span><b>{gamepad.label}</b><small>{gamepad.standard ? 'RS PITCH/ROLL · LS THR/YAW · Y/△ MODE' : '4-AXIS FALLBACK · STICKS ONLY'}</small></div>}
+          <div className="controller-chip"><span>{acroMode ? 'GYRO RATE CONTROLLER' : 'USER CONTROLLER · 4 AXES'}</span><b>{acroMode ? 'ACRO PID · 600°/S' : telemetry.controllerFault ? 'FALLBACK ACTIVE' : progress.validated ? `${progress.validated.language.toUpperCase()} PID` : `${progress.language.toUpperCase()} · UNVALIDATED`}</b></div>
           <div className="motor-mixer"><span>MOTOR THRUST · %</span><div>{telemetry.motors.map((motor, index) => <b key={index}>M{index + 1}<em>{motor}</em></b>)}</div></div>
           <div className="controller-chip render-chip"><span>PHYSICS / RENDERER</span><b>RAPIER · THREE.JS</b></div>
         </div>
@@ -1243,8 +1340,8 @@ function FlightView({ mode, progress, updateProgress, navigate, toast }) {
         ) : (
           <div className="flight-message"><span>{checkpoint >= TRAINING_GATES.length ? 'COURSE COMPLETE' : `CHECKPOINT 0${checkpoint + 1}`}</span><b>{checkpoint >= TRAINING_GATES.length ? 'Control loop proven in flight' : 'Fly through the illuminated gate'}</b><small>{checkpoint >= TRAINING_GATES.length ? 'All checkpoints cleared' : `${telemetry.distance.toFixed(0)} m to target`}</small></div>
         )}
-        <MobileFlightControls enabled={flightActive} controlsRef={touchControlsRef} />
-        <div className="flight-controls"><div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>Tilt ·32° / speed</span></div><div><kbd>↑</kbd><kbd>↓</kbd><span>Altitude</span></div><div><kbd>←</kbd><kbd>→</kbd><span>Yaw</span></div><button onClick={resetFlight}>Reset {mode === 'race' ? 'race' : 'flight'}</button></div>
+        <MobileFlightControls enabled={flightActive} controlsRef={touchControlsRef} acroMode={acroMode} />
+        <div className="flight-controls"><div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>{acroMode ? 'Body rates · 600°/s' : 'Tilt ·32° / speed'}</span></div><div><kbd>↑</kbd><kbd>↓</kbd><span>{acroMode ? 'Throttle' : 'Altitude'}</span></div><div><kbd>←</kbd><kbd>→</kbd><span>Yaw</span></div>{gamepad && <div className="gamepad-controls"><kbd>LS</kbd><kbd>RS</kbd><span>Gamepad</span></div>}<button onClick={resetFlight}>Reset {mode === 'race' ? 'race' : 'flight'}</button></div>
         {mode === 'race' ? (
           <div className={`launch-overlay ${launched ? 'hidden' : ''}`}>
             <div className="launch-card race-start-card">
@@ -1253,11 +1350,27 @@ function FlightView({ mode, progress, updateProgress, navigate, toast }) {
               <h2>Thread every gate. Beat the clock.</h2>
               <p>The paired floor lights mark the racing line. Other active pilots appear as translucent ghosts—your clock and flight remain completely local.</p>
               <div className="race-dialog-stats race-start-stats"><span><b>{RACE_GATES.length}</b> gates</span><span><b>{formatRaceTime(RACE_PAR_SECONDS)}</b> par</span><span><b>{progress.raceBest ? formatRaceTime(progress.raceBest) : '—'}</b> personal best</span></div>
+              <button className={`launch-mode-toggle ${acroMode ? 'acro' : ''}`} type="button" onClick={toggleFlightMode} aria-pressed={acroMode}><span>Flight mode</span><b>{acroMode ? 'ACRO' : 'ANGLE'}</b><small>{acroMode ? 'Body rates · direct throttle · unlimited attitude' : 'Self-leveling · altitude hold · 32° limit'}</small><em>Switch →</em></button>
+              <CameraModeToggle fpvMode={fpvMode} onToggle={toggleCameraMode} launch />
               <button className="primary-btn full" id="launch-race" onClick={startRace}>Start race <span>→</span></button>
             </div>
           </div>
         ) : (
-          <div className={`launch-overlay ${launched ? 'hidden' : ''}`}><div className="launch-card"><span className="launch-icon" aria-hidden="true">⌁</span><p className="eyebrow"><span>Pre-flight check</span></p><h2>Your controller earns the controls.</h2><p>Save a tune for the full 32° flight envelope. Low scores and unvalidated controllers remain flyable after a warning.</p><div className="checklist"><button onClick={() => navigate('code')}><i className={progress.codePassed ? 'done' : 'warning'}>{progress.codePassed ? '✓' : '!'}</i><span><b>Controller validation</b><small>{progress.codePassed ? 'Bench test passed' : 'Not validated · flight warning'}</small></span><em>Open code lab →</em></button><button onClick={() => navigate('tune')}><i className={progress.tunePassed ? (progress.tuneWarning ? 'warning' : 'done') : ''}>{progress.tunePassed ? (progress.tuneWarning ? '!' : '✓') : '○'}</i><span><b>Flight-envelope tune</b><small>{progress.tunePassed ? `${progress.tuneScore}/100 saved${progress.tuneWarning ? ' · stability warning' : ''}` : `Save any score · ${TUNE_PASS_SCORE}+ recommended`}</small></span><em>Open tuning bay →</em></button></div><button className="primary-btn full" id="launch-flight" onClick={launch} disabled={!ready}>Launch Practice <span>→</span></button></div></div>
+          <div className={`launch-overlay ${launched ? 'hidden' : ''}`}>
+            <div className="launch-card">
+              <span className="launch-icon" aria-hidden="true">⌁</span>
+              <p className="eyebrow"><span>Pre-flight check</span></p>
+              <h2>Your controller earns the controls.</h2>
+              <p>Angle mode flies the tuned learner controller; Acro adds a gyro-rate loop and direct throttle for unrestricted aerobatics.</p>
+              <div className="checklist">
+                <button onClick={() => navigate('code')}><i className={progress.codePassed ? 'done' : 'warning'}>{progress.codePassed ? '✓' : '!'}</i><span><b>Controller validation</b><small>{progress.codePassed ? 'Bench test passed' : 'Not validated · flight warning'}</small></span><em>Open code lab →</em></button>
+                <button onClick={() => navigate('tune')}><i className={progress.tunePassed ? (progress.tuneWarning ? 'warning' : 'done') : ''}>{progress.tunePassed ? (progress.tuneWarning ? '!' : '✓') : '○'}</i><span><b>Flight-envelope tune</b><small>{progress.tunePassed ? `${progress.tuneScore}/100 saved${progress.tuneWarning ? ' · stability warning' : ''}` : `Save any score · ${TUNE_PASS_SCORE}+ recommended`}</small></span><em>Open tuning bay →</em></button>
+              </div>
+              <button className={`launch-mode-toggle ${acroMode ? 'acro' : ''}`} type="button" onClick={toggleFlightMode} aria-pressed={acroMode}><span>Flight mode</span><b>{acroMode ? 'ACRO' : 'ANGLE'}</b><small>{acroMode ? 'Body rates · direct throttle · unlimited attitude' : 'Self-leveling · altitude hold · 32° limit'}</small><em>Switch →</em></button>
+              <CameraModeToggle fpvMode={fpvMode} onToggle={toggleCameraMode} launch />
+              <button className="primary-btn full" id="launch-flight" onClick={launch} disabled={!ready}>Launch Practice <span>→</span></button>
+            </div>
+          </div>
         )}
         {mode === 'training' && warningOpen && <TuneWarningDialog score={progress.tuneScore} weakest={progress.tuneWeakest} controllerWarning={controllerWarning} onClose={() => { setWarningOpen(false); navigate(controllerWarning ? 'code' : 'tune'); }} onProceed={arm} proceedLabel="Practice anyway" />}
         {mode === 'training' && challengeReady && <ChallengeReadyDialog best={progress.raceBest} onStart={() => navigate('race')} onPractice={keepPractising} />}

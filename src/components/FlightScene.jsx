@@ -17,6 +17,12 @@ import {
   readFlightInputs
 } from '../physics';
 import {
+  acroCollectiveFromThrottle,
+  acroThrottleFromStick,
+  createAcroRateMemory,
+  stepAcroRateController
+} from '../acroFlight';
+import {
   AIRFRAME_TRIM_TORQUE,
   ANGULAR_DAMPING,
   ATTITUDE_TORQUE_PER_COMMAND,
@@ -34,9 +40,16 @@ import {
   YAW_TORQUE_PER_COMMAND
 } from '../dronePhysics';
 import { FLIGHT_START, gatesForMode, isGateCleared } from '../flightCourse';
+import {
+  CHASE_CAMERA_FOV,
+  updateFlightCamera,
+  updateFlightCameraFov
+} from '../flightCamera';
+import { readGamepadInputs } from '../gamepad';
 
 const ZERO = { x: 0, y: 0, z: 0 };
 const IDENTITY_ROTATION = { x: 0, y: 0, z: 0, w: 1 };
+const ACRO_HOVER_THRUST_FRACTION = MASS * GRAVITY / (MAX_MOTOR_THRUST * 4);
 
 const wrapAngle = (angle) => Math.atan2(Math.sin(angle), Math.cos(angle));
 
@@ -271,7 +284,7 @@ function createTrimmedMemory(torque, commandTorque, gains) {
   return memory;
 }
 
-function createFlightState(motors, gains) {
+function createFlightState(motors, gains, controlMode = 'angle') {
   const memories = {
     pitch: createMemory(),
     // Tune doubles as the pre-flight trim calibration. Begin free flight
@@ -301,13 +314,21 @@ function createFlightState(motors, gains) {
     checkpoint: 0,
     elapsed: 0,
     controllerFault: false,
+    controlMode,
+    throttle: 0.5,
+    commandedRate: 0,
     desiredPitch: 0,
     desiredRoll: 0,
+    acroMemories: {
+      pitch: createAcroRateMemory(),
+      roll: createAcroRateMemory(),
+      yaw: createAcroRateMemory()
+    },
     memories
   };
 }
 
-function Simulator({ launched, mode = 'training', controller, gains, resetSignal, touchControlsRef, ghostIds = [], ghostPosesRef, onPose, onTelemetry, onCheckpoint }) {
+function Simulator({ launched, mode = 'training', flightMode = 'angle', cameraMode = 'chase', controller, gains, resetSignal, touchControlsRef, ghostIds = [], ghostPosesRef, onPose, onTelemetry, onCheckpoint }) {
   const gates = gatesForMode(mode);
   const challenge = mode === 'race';
   const { camera } = useThree();
@@ -322,6 +343,7 @@ function Simulator({ launched, mode = 'training', controller, gains, resetSignal
   const onCheckpointRef = useRef(onCheckpoint);
   const controllerRef = useRef(controller);
   const fallbackRef = useRef(builtInController(gains));
+  const flightModeRef = useRef(flightMode);
   const scratch = useMemo(() => ({
     attitude: new THREE.Euler(0, 0, 0, 'YXZ'),
     orientation: new THREE.Quaternion(),
@@ -336,7 +358,9 @@ function Simulator({ launched, mode = 'training', controller, gains, resetSignal
     velocity: new THREE.Vector3(),
     bodyAngularVelocity: new THREE.Vector3(),
     cameraTarget: new THREE.Vector3(),
-    cameraLook: new THREE.Vector3()
+    cameraLook: new THREE.Vector3(),
+    cameraForward: new THREE.Vector3(),
+    cameraUp: new THREE.Vector3()
   }), []);
 
   onTelemetryRef.current = onTelemetry;
@@ -344,9 +368,10 @@ function Simulator({ launched, mode = 'training', controller, gains, resetSignal
   onPoseRef.current = onPose;
   controllerRef.current = controller;
   fallbackRef.current = builtInController(gains);
+  flightModeRef.current = flightMode;
 
   const resetPhysics = useCallback(() => {
-    flightState.current = createFlightState(motorsVisual.current, gains);
+    flightState.current = createFlightState(motorsVisual.current, gains, flightModeRef.current);
     const body = bodyRef.current;
     if (body) {
       body.setTranslation(FLIGHT_START, true);
@@ -359,6 +384,7 @@ function Simulator({ launched, mode = 'training', controller, gains, resetSignal
     camera.position.set(0, 4.6, -5);
   }, [camera, gains]);
   useEffect(() => { resetPhysics(); }, [resetSignal, launched, mode, resetPhysics]);
+  useEffect(() => { updateFlightCameraFov(camera, cameraMode); }, [camera, cameraMode]);
 
   useBeforePhysicsStep((world) => {
     if (!launched || !bodyRef.current) return;
@@ -380,16 +406,39 @@ function Simulator({ launched, mode = 'training', controller, gains, resetSignal
     flight.elapsed += delta;
     const { forwardInput, rightInput, upInput, yawInput } = mergeFlightInputs(
       readFlightInputs(keys.current),
-      touchControlsRef?.current
+      touchControlsRef?.current,
+      readGamepadInputs()
     );
-    flight.altitudeTarget = clamp(flight.altitudeTarget + upInput * delta * 2.2, 0.45, 10);
-    flight.yawTarget = wrapAngle(flight.yawTarget + yawInput * delta * 1.1);
-    // Keep diagonal input inside the same circular attitude envelope as a
-    // single-axis command. Speed then comes from the real tilted thrust vector.
-    const inputMagnitude = Math.hypot(forwardInput, rightInput);
-    const inputScale = inputMagnitude > 1 ? 1 / inputMagnitude : 1;
-    const desiredPitch = forwardInput * inputScale * rad(MAX_FLIGHT_TILT_DEGREES);
-    const desiredRoll = rightInput * inputScale * rad(MAX_FLIGHT_TILT_DEGREES);
+    const acro = flightMode === 'acro';
+    if (flight.controlMode !== flightMode) {
+      flight.controlMode = flightMode;
+      flight.yawTarget = attitude.y;
+      flight.altitudeTarget = clamp(position.y, 0.45, 10);
+      flight.memories.pitch = createMemory();
+      flight.memories.roll = createTrimmedMemory(AIRFRAME_TRIM_TORQUE.roll, ATTITUDE_TORQUE_PER_COMMAND, gains);
+      flight.memories.yaw = createTrimmedMemory(AIRFRAME_TRIM_TORQUE.yaw, YAW_TORQUE_PER_COMMAND, gains);
+      flight.memories.altitude = createMemory();
+      flight.acroMemories = {
+        pitch: createAcroRateMemory(),
+        roll: createAcroRateMemory(),
+        yaw: createAcroRateMemory()
+      };
+    }
+
+    let desiredPitch = 0;
+    let desiredRoll = 0;
+    if (acro) {
+      flight.throttle = acroThrottleFromStick(upInput);
+    } else {
+      flight.altitudeTarget = clamp(flight.altitudeTarget + upInput * delta * 2.2, 0.45, 10);
+      flight.yawTarget = wrapAngle(flight.yawTarget + yawInput * delta * 1.1);
+      // Keep diagonal input inside the same circular attitude envelope as a
+      // single-axis command. Speed then comes from the real tilted thrust vector.
+      const inputMagnitude = Math.hypot(forwardInput, rightInput);
+      const inputScale = inputMagnitude > 1 ? 1 / inputMagnitude : 1;
+      desiredPitch = forwardInput * inputScale * rad(MAX_FLIGHT_TILT_DEGREES);
+      desiredRoll = rightInput * inputScale * rad(MAX_FLIGHT_TILT_DEGREES);
+    }
     flight.desiredPitch = desiredPitch;
     flight.desiredRoll = desiredRoll;
     const activeController = controllerRef.current || fallbackRef.current;
@@ -404,13 +453,27 @@ function Simulator({ launched, mode = 'training', controller, gains, resetSignal
       }
     };
 
-    // One validated learner function, four independent PID memories. Outputs
-    // become requested torques/collective acceleration, then the motor mixer
-    // and Rapier—not hand-authored position code—determine the actual motion.
-    const pitchOutput = control(wrapAngle(desiredPitch - attitude.x), flight.memories.pitch);
-    const rollOutput = control(wrapAngle(desiredRoll - attitude.z), flight.memories.roll);
-    const yawOutput = control(wrapAngle(flight.yawTarget - attitude.y), flight.memories.yaw);
-    const altitudeOutput = control(flight.altitudeTarget - position.y, flight.memories.altitude);
+    // Angle mode uses the learner's attitude/altitude PID. Acro uses a gyro
+    // body-rate PID, so centered sticks arrest rotation without self-leveling.
+    let pitchOutput;
+    let rollOutput;
+    let yawOutput;
+    let altitudeOutput = 0;
+    if (acro) {
+      const pitchRate = stepAcroRateController({ axis: 'pitch', stick: forwardInput, actualRate: bodyAngularVelocity.x, delta, memory: flight.acroMemories.pitch });
+      const rollRate = stepAcroRateController({ axis: 'roll', stick: rightInput, actualRate: bodyAngularVelocity.z, delta, memory: flight.acroMemories.roll });
+      const yawRate = stepAcroRateController({ axis: 'yaw', stick: yawInput, actualRate: bodyAngularVelocity.y, delta, memory: flight.acroMemories.yaw });
+      pitchOutput = pitchRate.output;
+      rollOutput = rollRate.output;
+      yawOutput = yawRate.output;
+      flight.commandedRate = deg(Math.hypot(pitchRate.targetRate, rollRate.targetRate));
+    } else {
+      pitchOutput = control(wrapAngle(desiredPitch - attitude.x), flight.memories.pitch);
+      rollOutput = control(wrapAngle(desiredRoll - attitude.z), flight.memories.roll);
+      yawOutput = control(wrapAngle(flight.yawTarget - attitude.y), flight.memories.yaw);
+      altitudeOutput = control(flight.altitudeTarget - position.y, flight.memories.altitude);
+      flight.commandedRate = 0;
+    }
 
     bodyUp.set(0, 1, 0).applyQuaternion(orientation);
     const actualThrust = stepMotorModel({
@@ -421,7 +484,10 @@ function Simulator({ launched, mode = 'training', controller, gains, resetSignal
       altitudeOutput,
       bodyUpY: bodyUp.y,
       delta,
-      battery: flight.battery
+      battery: flight.battery,
+      collectiveThrust: acro
+        ? acroCollectiveFromThrottle(flight.throttle, ACRO_HOVER_THRUST_FRACTION) * MAX_MOTOR_THRUST * 4
+        : undefined
     });
     const torque = motorBodyTorque(flight.motors, bodyAngularVelocity.y);
     bodyTorque.set(
@@ -464,7 +530,7 @@ function Simulator({ launched, mode = 'training', controller, gains, resetSignal
     const delta = clamp(rawDelta, 0, 0.033);
     const body = bodyRef.current;
     const flight = flightState.current;
-    const { attitude, orientation, position, velocity, cameraTarget, cameraLook } = scratch;
+    const { attitude, orientation, position, velocity, bodyAngularVelocity, cameraTarget, cameraLook, cameraForward, cameraUp } = scratch;
     const translation = body.translation();
     const rotation = body.rotation();
     const linearVelocity = body.linvel();
@@ -474,10 +540,18 @@ function Simulator({ launched, mode = 'training', controller, gains, resetSignal
     attitude.setFromQuaternion(orientation, 'YXZ');
     const yaw = attitude.y;
 
-    cameraTarget.set(position.x - Math.sin(yaw) * 5, position.y + 2.5, position.z - Math.cos(yaw) * 5);
-    camera.position.lerp(cameraTarget, 1 - Math.pow(0.001, delta));
-    cameraLook.set(position.x + Math.sin(yaw) * 5, position.y + 0.15, position.z + Math.cos(yaw) * 5);
-    camera.lookAt(cameraLook);
+    updateFlightCamera({
+      camera,
+      cameraMode,
+      position,
+      orientation,
+      yaw,
+      delta,
+      cameraTarget,
+      cameraLook,
+      cameraForward,
+      cameraUp
+    });
 
     poseTime.current += delta;
     if (poseTime.current > 1 / 15) {
@@ -497,6 +571,9 @@ function Simulator({ launched, mode = 'training', controller, gains, resetSignal
         speed: velocity.length(),
         tilt: Math.hypot(deg(attitude.x), deg(attitude.z)),
         commandedTilt: Math.hypot(deg(flight.desiredPitch), deg(flight.desiredRoll)),
+        bodyRate: deg(Math.hypot(bodyAngularVelocity.x, bodyAngularVelocity.z)),
+        commandedRate: flight.commandedRate,
+        throttle: flight.throttle * 100,
         heading: ((-deg(yaw) % 360) + 360) % 360,
         battery: flight.battery,
         elapsed: flight.elapsed,
@@ -548,7 +625,7 @@ export default function FlightScene(props) {
       className="three-flight-canvas"
       shadows
       dpr={[1, 1.6]}
-      camera={{ position: [0, 4.6, -5], fov: 55, near: 0.1, far: 320 }}
+      camera={{ position: [0, 4.6, -5], fov: CHASE_CAMERA_FOV, near: 0.1, far: 320 }}
       gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }}
     >
       <color attach="background" args={['#160313']} />

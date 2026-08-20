@@ -470,6 +470,16 @@ input[type="range"]::-webkit-slider-thumb { appearance: none; width: 13px; heigh
 .flight-status b { color: var(--amber); margin-top: 6px; }
 .flight-status.live span i { background: var(--green); box-shadow: 0 0 7px var(--green); }
 .flight-status.live b { color: var(--green); }
+.flight-mode-btn { min-width: 82px; height: 39px; display: grid; place-content: center; gap: 2px; padding: 0 10px; pointer-events: auto; border: 1px solid rgba(110,231,168,.3); border-radius: 4px; background: rgba(15,3,18,.7); color: var(--green); cursor: pointer; backdrop-filter: blur(8px); transition: color .18s ease, border-color .18s ease, background .18s ease, box-shadow .18s ease; }
+.flight-mode-btn span, .flight-mode-btn b { display: block; font-family: var(--mono); line-height: 1; letter-spacing: .1em; text-transform: uppercase; }
+.flight-mode-btn span { color: var(--muted-2); font-size: 7px; font-weight: 400; }
+.flight-mode-btn b { font-size: 10px; font-weight: 650; }
+.flight-mode-btn:hover { border-color: currentColor; background: rgba(110,231,168,.1); }
+.flight-mode-btn.acro { border-color: rgba(255,194,71,.58); background: rgba(55,35,5,.7); color: var(--amber); box-shadow: 0 0 18px rgba(255,194,71,.1); }
+.flight-mode-btn.acro:hover { background: rgba(255,194,71,.13); }
+.camera-mode-btn { border-color: rgba(54,229,255,.3); color: var(--cyan); }
+.camera-mode-btn:hover { background: rgba(54,229,255,.1); }
+.camera-mode-btn.fpv { border-color: rgba(54,229,255,.62); background: rgba(7,43,51,.72); box-shadow: 0 0 18px rgba(54,229,255,.12); }
 .fullscreen-btn { min-width: 39px; height: 39px; display: flex; align-items: center; justify-content: center; gap: 7px; padding: 0 10px; pointer-events: auto; border: 1px solid rgba(255,255,255,.16); border-radius: 4px; background: rgba(15,3,18,.7); color: var(--muted); cursor: pointer; backdrop-filter: blur(8px); transition: color .18s ease, border-color .18s ease, background .18s ease; }
 .fullscreen-btn:hover { border-color: rgba(255,0,150,.55); background: rgba(255,0,150,.12); color: var(--cyan); }
 .fullscreen-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
@@ -493,6 +503,9 @@ input[type="range"]::-webkit-slider-thumb { appearance: none; width: 13px; heigh
 .multiplayer-chip.connected b { color: var(--green); }
 .multiplayer-chip.connected b i { box-shadow: 0 0 8px currentColor; }
 .multiplayer-chip.offline b { color: var(--muted-2); }
+.gamepad-chip { border-color: rgba(54,229,255,.25); background: rgba(7,43,51,.42); }
+.gamepad-chip b { overflow: hidden; color: var(--cyan); text-overflow: ellipsis; white-space: nowrap; }
+.gamepad-chip small { display: block; margin-top: 6px; color: var(--muted-2); font: 7px/1.35 var(--mono); letter-spacing: .04em; }
 .render-chip b { color: var(--violet); }
 .motor-mixer { background: rgba(4,14,23,.45); border: 1px solid rgba(255,255,255,.08); padding: 11px; margin-bottom: 8px; backdrop-filter: blur(6px); }
 .motor-mixer > span { display: block; color: rgba(246,218,239,.62); font: 9px var(--mono); letter-spacing: .13em; }
@@ -518,6 +531,8 @@ input[type="range"]::-webkit-slider-thumb { appearance: none; width: 13px; heigh
 .flight-controls span { color: var(--muted); font: 9px var(--mono); margin-left: 5px; text-transform: uppercase; }
 .flight-controls button { border: 0; border-left: 1px solid var(--line); background: none; color: var(--muted); font: 10px var(--mono); text-transform: uppercase; cursor: pointer; padding-left: 16px; }
 .flight-controls button:hover { color: var(--cyan); }
+.flight-controls .gamepad-controls { padding-left: 12px; border-left: 1px solid var(--line); }
+.flight-controls .gamepad-controls kbd { color: var(--cyan); border-color: rgba(54,229,255,.3); }
 .mobile-flight-controls { display: none; }
 .touch-stick { width: var(--stick-size, 112px); display: grid; justify-items: center; gap: 5px; color: rgba(246,218,239,.72); font: 8px var(--mono); letter-spacing: .1em; text-align: center; text-transform: uppercase; text-shadow: 0 2px 5px #09010a; pointer-events: none; user-select: none; -webkit-user-select: none; }
 .touch-stick > span { color: var(--ink); }
@@ -538,6 +553,17 @@ input[type="range"]::-webkit-slider-thumb { appearance: none; width: 13px; heigh
 .race-start-card { width: min(590px, calc(100% - 32px)); }
 .race-launch-icon { color: var(--cyan); }
 .race-start-stats { margin-top: 0; }
+.launch-mode-toggle { width: 100%; min-height: 48px; margin: 0 0 10px; display: grid; grid-template-columns: auto auto 1fr auto; align-items: center; gap: 9px; padding: 9px 12px; border: 1px solid rgba(110,231,168,.34); border-radius: 4px; background: rgba(110,231,168,.06); color: var(--green); cursor: pointer; text-align: left; transition: border-color .18s ease, background .18s ease; }
+.launch-mode-toggle:hover { border-color: currentColor; background: rgba(110,231,168,.11); }
+.launch-mode-toggle span, .launch-mode-toggle small, .launch-mode-toggle em { color: var(--muted); font: 8px var(--mono); letter-spacing: .07em; text-transform: uppercase; }
+.launch-mode-toggle b { font: 650 11px var(--mono); letter-spacing: .09em; }
+.launch-mode-toggle small { justify-self: center; text-transform: none; }
+.launch-mode-toggle em { justify-self: end; color: currentColor; font-style: normal; }
+.launch-mode-toggle.acro { border-color: rgba(255,194,71,.55); background: rgba(255,194,71,.08); color: var(--amber); }
+.launch-mode-toggle.acro:hover { background: rgba(255,194,71,.14); }
+.camera-launch-toggle { border-color: rgba(54,229,255,.32); background: rgba(54,229,255,.05); color: var(--cyan); }
+.camera-launch-toggle:hover { background: rgba(54,229,255,.1); }
+.camera-launch-toggle.fpv { border-color: rgba(54,229,255,.62); background: rgba(54,229,255,.11); }
 .checklist { margin: 0 0 18px; border: 1px solid var(--line); }
 .checklist button { width: 100%; border: 0; border-bottom: 1px solid var(--line); background: rgba(255,255,255,.015); display: grid; grid-template-columns: 24px 1fr auto; align-items: center; gap: 8px; padding: 12px; text-align: left; cursor: pointer; }
 .checklist button:last-child { border-bottom: 0; }
@@ -768,6 +794,8 @@ footer button:hover { color: var(--red); }
   .flight-topbar h1 { font-size: 21px; }
   .flight-topbar .eyebrow { font-size: 8px; }
   .flight-system-actions { gap: 6px; }
+  .flight-mode-btn { width: 52px; min-width: 52px; padding: 0 5px; }
+  .flight-mode-btn span { display: none; }
   .fullscreen-btn { width: 37px; min-width: 37px; padding: 0; }
   .fullscreen-btn span { display: none; }
   .flight-message { top: 235px; }
@@ -780,6 +808,8 @@ footer button:hover { color: var(--red); }
   .race-dialog-stats b { display: inline; margin: 0 6px 0 0; }
   .race-dialog-actions { align-items: stretch; flex-direction: column-reverse; }
   .race-dialog-actions button { width: 100%; }
+  .launch-mode-toggle { grid-template-columns: auto auto 1fr; }
+  .launch-mode-toggle small { display: none; }
   .race-result-time { font-size: 46px; }
   .result-stats { grid-template-columns: 1fr; }
   .flight-controls > div:first-child { display: none; }
@@ -794,6 +824,7 @@ footer button:hover { color: var(--red); }
   .right-hud { width: 138px; }
   .right-hud .controller-chip, .right-hud .motor-mixer { display: none; }
   .right-hud .multiplayer-chip { display: block; }
+  .right-hud .gamepad-chip { display: block; }
   .hud-block { margin-bottom: 12px; }
   .hud-block b { font-size: 23px; }
 }

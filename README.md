@@ -42,6 +42,14 @@ Starting a Race connects the browser to one global Socket.IO room. Each client s
 
 Run the relay without Compose with `npm --prefix multiplayer start`; the normal Vite server proxies to `http://localhost:3001` by default.
 
+## Flight modes
+
+Practice and Race can switch between Angle and Acro before launch or while airborne. Angle keeps the course's self-leveling 32° attitude envelope and altitude hold. Acro instead maps roll, pitch, and yaw input to gyro body-rate targets with strong expo around center stick, reaching 600°/s on every axis while retaining extra yaw response. Centered attitude sticks stop rotation without leveling the aircraft, attitude is unrestricted, and the throttle follows the current stick position directly with 50% close to hover and no automatic tilt compensation.
+
+Standard browser gamepads are supported alongside keyboard and touch controls. The right stick controls pitch/roll, the left stick controls altitude-or-throttle/yaw, A/Cross launches or confirms, Y/Triangle switches Angle/Acro, and Menu/Options resets the flight. Analog sticks use a radial deadzone plus a small per-axis drift filter, and four-axis non-standard devices fall back to stick-only control.
+
+The camera can be switched independently between the default stabilized chase view and a wide-angle, nose-mounted FPV view that follows the aircraft's full pitch, roll, and yaw attitude. Camera selection is available before launch and while airborne.
+
 ## Deployment
 
 Pushes to `main` build both `ghcr.io/linusthorsell/how_to_tame_a_drone` and
@@ -55,7 +63,7 @@ then deploys the app and relay to <https://drone.linus.solutions>.
 1. Work through five short PID lessons and manipulate the response plot.
 2. Begin with the P-only JavaScript or Python starter, then use the Code Lab guide to add integral memory, derivative damping, and output limiting. Code validation runs the same Rapier rigid-body and motor loop used by Tune, Practice, and Race.
 3. Tune P, I, and D against a full-envelope 32° roll, yaw-step, gust, and offset-payload scenarios. The graph is measured from a Rapier rigid body using Three.js attitude math, the shared flight motor model, and the validated controller. Scores of 75+ overall and 60+ in every scenario are recommended; lower-scoring tunes can still be saved and flown after a stability warning.
-4. Practice with four independent roll, pitch, yaw, and altitude loops. Their outputs pass through a four-motor mixer into the Rapier flight simulator. Pilot input can command up to 32° of total tilt, and the resulting horizontal thrust physically increases speed. A saved tune unlocks Practice; an unvalidated controller can still fly after a warning and falls back safely if it throws at runtime.
+4. Practice with four independent roll, pitch, yaw, and altitude loops in Angle mode, or switch to the dedicated gyro-rate PID and direct throttle in Acro. Both paths pass through the same four-motor mixer and Rapier rigid-body simulator. A saved tune unlocks Practice; an unvalidated controller can still fly after a warning and falls back safely if it throws at runtime.
 5. Clear the three Practice gates to unlock the separate Race tab and timed Neon Gauntlet: a 12-gate course with narrower collidable frames, sharp line and altitude changes, illuminated floor guidance, a par time, a saved personal best, and live non-colliding ghosts of other racers.
 
 Progress, code, timing, and physics stay in the learner's browser via `localStorage`; the multiplayer relay is ephemeral and has no database or authoritative game state.

@@ -39,10 +39,14 @@ export function stepMotorModel({
   altitudeOutput,
   bodyUpY,
   delta,
-  battery = 100
+  battery = 100,
+  collectiveThrust
 }) {
+  const directCollective = Number(collectiveThrust);
   const tiltCompensation = Math.max(bodyUpY, 0.55);
-  const collective = clamp(MASS * (GRAVITY + altitudeOutput * 3.2) / tiltCompensation, 0, MAX_MOTOR_THRUST * 4);
+  const collective = Number.isFinite(directCollective)
+    ? clamp(directCollective, 0, MAX_MOTOR_THRUST * 4)
+    : clamp(MASS * (GRAVITY + altitudeOutput * 3.2) / tiltCompensation, 0, MAX_MOTOR_THRUST * 4);
   const pitchMix = pitchOutput * ATTITUDE_TORQUE_PER_COMMAND / (4 * ARM_LENGTH);
   const rollMix = rollOutput * ATTITUDE_TORQUE_PER_COMMAND / (4 * ARM_LENGTH);
   const yawMix = yawOutput * YAW_TORQUE_PER_COMMAND / (4 * YAW_TORQUE_COEFFICIENT);
