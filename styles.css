@@ -512,15 +512,15 @@ input[type="range"]::-webkit-slider-thumb { appearance: none; width: 13px; heigh
 .flight-controls button { border: 0; border-left: 1px solid var(--line); background: none; color: var(--muted); font: 10px var(--mono); text-transform: uppercase; cursor: pointer; padding-left: 16px; }
 .flight-controls button:hover { color: var(--cyan); }
 .mobile-flight-controls { display: none; }
-.touch-stick { width: 112px; display: grid; justify-items: center; gap: 5px; color: rgba(246,218,239,.72); font: 8px var(--mono); letter-spacing: .1em; text-align: center; text-transform: uppercase; text-shadow: 0 2px 5px #09010a; pointer-events: none; user-select: none; -webkit-user-select: none; }
+.touch-stick { width: var(--stick-size, 112px); display: grid; justify-items: center; gap: 5px; color: rgba(246,218,239,.72); font: 8px var(--mono); letter-spacing: .1em; text-align: center; text-transform: uppercase; text-shadow: 0 2px 5px #09010a; pointer-events: none; user-select: none; -webkit-user-select: none; }
 .touch-stick > span { color: var(--ink); }
 .touch-stick > small { color: rgba(246,218,239,.56); font: 7px var(--mono); letter-spacing: .07em; }
-.touch-stick-pad { width: 108px; height: 108px; position: relative; overflow: hidden; border: 1px solid rgba(255,255,255,.22); border-radius: 50%; background: radial-gradient(circle, rgba(255,0,150,.07) 0 29%, transparent 30%), rgba(15,3,18,.43); box-shadow: inset 0 0 28px rgba(255,0,150,.08), 0 8px 24px rgba(0,0,0,.22); pointer-events: auto; touch-action: none; }
+.touch-stick-pad { width: var(--stick-size, 108px); height: var(--stick-size, 108px); position: relative; overflow: hidden; border: 1px solid rgba(255,255,255,.22); border-radius: 50%; background: radial-gradient(circle, rgba(255,0,150,.07) 0 29%, transparent 30%), rgba(15,3,18,.43); box-shadow: inset 0 0 28px rgba(255,0,150,.08), 0 8px 24px rgba(0,0,0,.22); pointer-events: auto; touch-action: none; }
 .touch-stick-pad::after { content: ""; position: absolute; inset: 12px; border: 1px solid rgba(255,255,255,.07); border-radius: 50%; pointer-events: none; }
 .touch-stick-axis { position: absolute; left: 50%; top: 50%; background: rgba(255,255,255,.1); pointer-events: none; }
 .touch-stick-axis.horizontal { width: 66%; height: 1px; transform: translate(-50%, -50%); }
 .touch-stick-axis.vertical { width: 1px; height: 66%; transform: translate(-50%, -50%); }
-.touch-stick-pad b { width: 43px; height: 43px; position: absolute; z-index: 1; left: 50%; top: 50%; border: 1px solid rgba(255,0,150,.76); border-radius: 50%; background: radial-gradient(circle at 35% 30%, rgba(255,255,255,.22), transparent 28%), rgba(60,9,53,.88); box-shadow: 0 0 18px rgba(255,0,150,.24), inset 0 0 10px rgba(255,0,150,.17); pointer-events: none; }
+.touch-stick-pad b { width: 40%; height: 40%; position: absolute; z-index: 1; left: 50%; top: 50%; border: 1px solid rgba(255,0,150,.76); border-radius: 50%; background: radial-gradient(circle at 35% 30%, rgba(255,255,255,.22), transparent 28%), rgba(60,9,53,.88); box-shadow: 0 0 18px rgba(255,0,150,.24), inset 0 0 10px rgba(255,0,150,.17); pointer-events: none; }
 .mobile-flight-controls.disabled { opacity: 0; visibility: hidden; }
 .launch-overlay { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(3,10,18,.76); backdrop-filter: blur(5px); z-index: 5; }
 .launch-overlay.hidden { opacity: 0; pointer-events: none; transition: opacity .4s ease; }
@@ -564,6 +564,9 @@ input[type="range"]::-webkit-slider-thumb { appearance: none; width: 13px; heigh
 .race-countdown span, .race-countdown small { color: var(--muted); font: 10px var(--mono); letter-spacing: .2em; text-transform: uppercase; }
 .race-countdown b { margin: 8px 0; color: var(--ink); font: 120px/.9 var(--mono); font-weight: 250; text-shadow: 0 0 35px var(--cyan); animation: race-countdown-pulse 1s ease-out both; }
 .race-countdown small { color: var(--cyan); letter-spacing: .11em; }
+.countdown-fullscreen-btn { min-height: 42px; margin-top: 22px; display: flex; align-items: center; gap: 8px; padding: 0 15px; pointer-events: auto; border: 1px solid rgba(255,0,150,.58); border-radius: 4px; background: rgba(32,5,29,.82); color: var(--ink); font: 9px var(--mono); letter-spacing: .08em; text-transform: uppercase; cursor: pointer; box-shadow: 0 0 24px rgba(255,0,150,.12); }
+.countdown-fullscreen-btn:hover { border-color: var(--cyan); color: var(--cyan); background: rgba(255,0,150,.13); }
+.countdown-fullscreen-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 @keyframes race-countdown-pulse { from { opacity: 0; transform: scale(1.35); } 25% { opacity: 1; } to { opacity: .82; transform: scale(.85); } }
 
 footer { min-height: 50px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; padding: 0 32px; color: var(--muted-2); font: 10px var(--mono); letter-spacing: .08em; }
@@ -777,7 +780,7 @@ footer button:hover { color: var(--red); }
   footer button { width: 100%; }
 }
 @media (hover: none) and (pointer: coarse) and (max-width: 820px), (hover: none) and (pointer: coarse) and (max-height: 560px) {
-  .mobile-flight-controls { position: absolute; z-index: 6; left: max(10px, env(safe-area-inset-left)); right: max(10px, env(safe-area-inset-right)); bottom: max(16px, env(safe-area-inset-bottom)); display: flex; align-items: flex-end; justify-content: space-between; pointer-events: none; transition: opacity .18s ease, visibility .18s ease; }
+  .mobile-flight-controls { --stick-size: clamp(118px, min(38vw, 43vh), 190px); position: absolute; z-index: 6; left: max(10px, env(safe-area-inset-left)); right: max(10px, env(safe-area-inset-right)); bottom: max(16px, env(safe-area-inset-bottom)); display: flex; align-items: flex-end; justify-content: space-between; pointer-events: none; transition: opacity .18s ease, visibility .18s ease; }
   .flight-controls { z-index: 7; left: 50%; bottom: max(16px, env(safe-area-inset-bottom)); width: auto; padding: 0; border: 0; background: none; backdrop-filter: none; }
   .flight-controls > div { display: none; }
   .flight-controls button { min-height: 34px; padding: 0 9px; border: 1px solid rgba(255,255,255,.13); border-radius: 4px; background: rgba(15,3,18,.7); font-size: 8px; backdrop-filter: blur(7px); }
@@ -798,8 +801,6 @@ footer button:hover { color: var(--red); }
   .flight-frame.is-fullscreen .flight-message { top: 58px; }
   .flight-frame.is-fullscreen .race-hud { top: 55px; width: 235px; padding: 8px 12px; }
   .flight-frame.is-fullscreen .race-hud b { font-size: 24px; }
-  .touch-stick { width: 96px; }
-  .touch-stick-pad { width: 92px; height: 92px; }
   .touch-stick > small { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; } }

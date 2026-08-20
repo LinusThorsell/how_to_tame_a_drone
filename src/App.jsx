@@ -925,13 +925,13 @@ function RaceResultDialog({ result, best, onRestart, onTraining }) {
 function TouchJoystick({ label, hint, enabled, onChange }) {
   const pointer = useRef(null);
   const onChangeRef = useRef(onChange);
-  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [position, setPosition] = useState({ x: 0, y: 0, travel: 0 });
   onChangeRef.current = onChange;
 
   const release = useCallback((event) => {
     if (event && pointer.current !== event.pointerId) return;
     pointer.current = null;
-    setPosition({ x: 0, y: 0 });
+    setPosition((current) => ({ x: 0, y: 0, travel: current.travel }));
     onChangeRef.current({ x: 0, y: 0 });
   }, []);
 
@@ -952,7 +952,7 @@ function TouchJoystick({ label, hint, enabled, onChange }) {
     }
     if (Math.abs(x) < 0.04) x = 0;
     if (Math.abs(y) < 0.04) y = 0;
-    setPosition({ x, y });
+    setPosition({ x, y, travel: Math.min(rect.width, rect.height) * 0.29 });
     onChangeRef.current({ x, y });
   };
 
@@ -980,7 +980,7 @@ function TouchJoystick({ label, hint, enabled, onChange }) {
         <i className="touch-stick-axis vertical" aria-hidden="true" />
         <b
           aria-hidden="true"
-          style={{ transform: `translate(calc(-50% + ${position.x * 31}px), calc(-50% - ${position.y * 31}px))` }}
+          style={{ transform: `translate(calc(-50% + ${position.x * position.travel}px), calc(-50% - ${position.y * position.travel}px))` }}
         />
       </div>
       <small>{hint}</small>
@@ -1205,7 +1205,7 @@ function FlightView({ mode, progress, updateProgress, navigate, toast }) {
         )}
         {mode === 'training' && warningOpen && <TuneWarningDialog score={progress.tuneScore} weakest={progress.tuneWeakest} controllerWarning={controllerWarning} onClose={() => { setWarningOpen(false); navigate(controllerWarning ? 'code' : 'tune'); }} onProceed={arm} proceedLabel="Practice anyway" />}
         {mode === 'training' && challengeReady && <ChallengeReadyDialog best={progress.raceBest} onStart={() => navigate('race')} onPractice={keepPractising} />}
-        {countingDown && <div className="race-countdown" aria-live="assertive"><span>RACE STARTS IN</span><b key={raceCountdown}>{raceCountdown}</b><small>Follow the bright floor lights</small></div>}
+        {countingDown && <div className="race-countdown" aria-live="assertive"><span>RACE STARTS IN</span><b key={raceCountdown}>{raceCountdown}</b><small>Follow the bright floor lights</small><button className="countdown-fullscreen-btn" type="button" onClick={toggleFullscreen} aria-pressed={isFullscreen}><FullscreenIcon active={isFullscreen} /> {isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}</button></div>}
         {raceResult && <RaceResultDialog result={raceResult} best={bestTime} onRestart={restartRace} onTraining={returnToTraining} />}
       </div>
     </section>
